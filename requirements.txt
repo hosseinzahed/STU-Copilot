@@ -14,3 +14,4 @@ asyncpg
 psycopg2-binary
 azure-monitor-opentelemetry
 mcp[cli]
+diagrams

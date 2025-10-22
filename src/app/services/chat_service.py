@@ -30,8 +30,8 @@ class ChatService:
                 "icon": "file-search",
                 "is_button": False,
                 "is_persistent": False,
-                "is_command": False,
-                "is_action": False,
+                "is_command": True,
+                "is_action": True,
                 "command": "GitHub Docs",
                 "action_name": "action_button",
                 "agent_object": agents.get("github_docs_search_agent")
