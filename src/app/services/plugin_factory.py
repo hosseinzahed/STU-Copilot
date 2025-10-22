@@ -4,7 +4,7 @@ from semantic_kernel.functions import kernel_function
 from semantic_kernel.connectors.mcp import MCPStreamableHttpPlugin, TextContent
 from semantic_kernel.contents import ChatMessageContent
 from azure.identity.aio import DefaultAzureCredential
-from semantic_kernel.agents import AzureAIAgent
+from semantic_kernel.agents import AzureAIAgent, RunPollingOptions
 import chainlit as cl
 from .cosmos_db_service import cosmos_db_service
 import json
@@ -160,7 +160,11 @@ class BingPlugin:
         """Perform a Bing search."""
         async with get_ai_foundry_client() as client:
             agent_definition = await client.agents.get_agent(agent_id=bing_search_agent_id)
-            agent = AzureAIAgent(client=client, definition=agent_definition)
+            polling_options = RunPollingOptions(
+                max_iterations=10,
+                delay_in_ms=100
+            )
+            agent = AzureAIAgent(client=client, definition=agent_definition, polling_options=polling_options)
             structured_message: ChatMessageContent = ChatMessageContent(
                 role="user",
                 content=input

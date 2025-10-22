@@ -1,8 +1,17 @@
 # Use Python 3.13.5 slim image as base
 FROM python:3.13.5-slim
 
+# avoid interactive prompts during apt operations
+ENV DEBIAN_FRONTEND=noninteractive
+
 # Set working directory
 WORKDIR /app
+
+# Install OS-level dependencies (graphviz). Clean apt lists to keep image small.
+# If you need to compile Python bindings like pygraphviz, add build-essential, pkg-config, graphviz-dev
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends graphviz \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file first for better Docker layer caching
 COPY src/app/requirements.txt .
