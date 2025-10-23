@@ -3,11 +3,10 @@ from typing import List, Dict, Optional
 import chainlit as cl
 from services.chat_service import chat_service
 from services.agent_factory import agent_factory
-
+from agent_framework import ChatAgent, ChatMessage, AgentThread
 import logging
 import socketio
 from engineio.payload import Payload
-import time
 from chainlit.types import ThreadDict
 
 
@@ -38,7 +37,7 @@ logging.getLogger("socketio").setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 # Initialize services and agents
-agents: dict[str, ChatCompletionAgent] = agent_factory.get_agents()
+agents: dict[str, ChatAgent] = agent_factory.get_agents()
 
 
 @cl.oauth_callback
@@ -70,7 +69,7 @@ async def on_chat_start():
     )
 
     # Initialize the chat service and chat history
-    chat_history: ChatHistory = ChatHistory()
+    chat_history: list[ChatMessage] = []
 
     # Construct the welcome message
     welcome_message = chat_service.get_welcome_message(
@@ -86,7 +85,7 @@ async def on_chat_start():
     # Show the welcome message to the user
     await cl.Message(content=welcome_message).send()
 
-    chat_history.add_assistant_message(welcome_message)
+    # chat_history.append(ChatMessage(role="assistant", content=welcome_message))
 
     cl.user_session.set("chat_history", chat_history)
     cl.user_session.set("chat_thread", None)
@@ -96,11 +95,10 @@ async def on_chat_start():
 @cl.on_message
 async def on_message(user_message: cl.Message):
 
-    chat_history: ChatHistory = cl.user_session.get("chat_history")
-    chat_thread: ChatHistoryAgentThread = cl.user_session.get(
-        "chat_thread")
+    chat_history: list[ChatMessage] = cl.user_session.get("chat_history")
+    chat_thread: AgentThread = cl.user_session.get("chat_thread")
 
-    responder_agent: ChatCompletionAgent = chat_service.select_responder_agent(
+    responder_agent: ChatAgent = chat_service.select_responder_agent(
         agents=agents,
         current_message=user_message,
         latest_agent_name=cl.user_session.get("latest_agent_name")
@@ -114,7 +112,7 @@ async def on_message(user_message: cl.Message):
     # Set the latest agent in the user session
     cl.user_session.set("latest_agent_name", responder_agent.name)
 
-    chat_history.add_user_message(user_message.content)
+    chat_history.append(ChatMessage(role="user", content=user_message.content))
     answer = cl.Message(content="", actions=agent_actions)
 
     # Select which messages to send to the agent
@@ -128,15 +126,15 @@ async def on_message(user_message: cl.Message):
     cl.user_session.set("latest_agent", responder_agent.name)
 
     # Stream the agent's response token by token
-    async for token in responder_agent.invoke_stream(
+    async for token in responder_agent.run_stream(
             messages=messages,
-            thread=chat_thread
+            #thread=chat_thread
     ):
-        if token.content:
-            await answer.stream_token(token.content.content)
+        if token.text:
+            await answer.stream_token(token.text)
 
-    cl.user_session.set("chat_thread", token.thread)
-    chat_history.add_assistant_message(answer.content)
+    cl.user_session.set("chat_thread", chat_thread)
+    chat_history.append(ChatMessage(role="assistant", content=answer.content))
 
     # Send the final message
     await answer.send()
@@ -148,18 +146,18 @@ async def on_chat_resume(thread: ThreadDict):
     await cl.context.emitter.set_commands(
         chat_service.get_commands()
     )
-    chat_history: ChatHistory = ChatHistory()
+    chat_history: list[ChatMessage] = []
 
     for step in thread["steps"]:
         if step["type"] == "assistant_message":
-            chat_history.add_assistant_message(step["output"])
+            chat_history.append(ChatMessage(
+                role="assistant", content=step["output"]))
         elif step["type"] == "user_message":
-            chat_history.add_user_message(step["output"])
+            chat_history.append(ChatMessage(
+                role="user", content=step["output"]))
     cl.user_session.set("chat_history", chat_history)
 
-    chat_thread = ChatHistoryAgentThread(
-        chat_history=chat_history,
-        thread_id=thread["id"])
+    chat_thread = AgentThread(service_thread_id=thread["id"])
 
     cl.user_session.set("chat_thread", chat_thread)
 
@@ -186,7 +184,7 @@ async def set_starts() -> List[cl.Starter]:
 async def on_action_button(action: cl.Action):
     """Handle action button clicks."""
 
-    chat_history: ChatHistory = cl.user_session.get("chat_history")
+    chat_history: list[ChatMessage] = cl.user_session.get("chat_history")
     user_prompts = "\n".join(
         [msg.content for msg in chat_history if msg.role == "user"]
     )

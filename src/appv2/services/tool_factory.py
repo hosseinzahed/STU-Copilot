@@ -30,13 +30,12 @@ if not github_docs_search_agent_id:
 
 
 class Tools:
-    """A plugin to search GitHub repositories."""
+    """Collection of AI functions as tools."""    
 
     @ai_function(name="search_github_repositories",
                  description="Search for relevant GitHub repositories for a given topic.")
     @cl.step(type="tool", name="Search GitHub Repositories")
-    async def search_github_repositories(self,
-                                         input: Annotated[str, Field(description="The topic to search for")]) -> list:
+    async def search_github_repositories(input: Annotated[str, Field(description="The topic to search for")]) -> list:
         """Search for relevant GitHub repositories."""
         results = cosmos_db_service.hybrid_search(
             search_terms=input,
@@ -49,8 +48,7 @@ class Tools:
     @ai_function(name="search_microsoft_docs",
                  description="Search for relevant Microsoft documentation for a given topic.")
     @cl.step(type="tool", name="Search Microsoft Documentation")
-    async def search_microsoft_docs(self,
-                                    input: Annotated[str, Field(description="The topic to search for")]) -> str:
+    async def search_microsoft_docs(input: Annotated[str, Field(description="The topic to search for")]) -> str:
         """Search for relevant Microsoft documentation."""
 
         async with streamablehttp_client("https://learn.microsoft.com/api/mcp") as (
@@ -99,8 +97,7 @@ class Tools:
     @ai_function(name="search_blog_posts",
                  description="Search for relevant blog posts for a given topic.")
     @cl.step(type="tool", name="Search Blog Posts")
-    async def search_blog_posts(self,
-                                input: Annotated[str, Field(description="The topic to search for")]) -> list:
+    async def search_blog_posts(input: Annotated[str, Field(description="The topic to search for")]) -> list:
         """Search for relevant blog posts."""
         results = cosmos_db_service.hybrid_search(
             search_terms=input,
@@ -112,8 +109,7 @@ class Tools:
     @ai_function(name="search_seismic_presentations",
                  description="Search for relevant Seismic presentations for a given topic.")
     @cl.step(type="tool", name="Search Seismic Presentations")
-    async def search_seismic_presentations(self,
-                                           input: Annotated[str, Field(description="The topic to search for")]) -> list:
+    async def search_seismic_presentations(input: Annotated[str, Field(description="The topic to search for")]) -> list:
         """Search for relevant Seismic presentations."""
         results = cosmos_db_service.hybrid_search(
             search_terms=input,
@@ -125,8 +121,7 @@ class Tools:
 
     @ai_function(name="search_by_bing", description="Search by Bing for a given query.")
     @cl.step(type="tool", name="Search by Bing")
-    async def search_by_bing(self,
-                             input: Annotated[str, Field(description="The query to search for")]) -> str:
+    async def search_by_bing(input: Annotated[str, Field(description="The query to search for")]) -> str:
         """Perform a Bing search."""
         async with get_ai_foundry_client() as client:
             agent: ChatAgent = await client.agents.get_agent(agent_id=bing_search_agent_id)
@@ -142,8 +137,7 @@ class Tools:
     @ai_function(name="search_github_docs",
                  description="Search for relevant GitHub documentation for a given topic.")
     @cl.step(type="tool", name="Search GitHub Documentation")
-    async def search_github_docs(self,
-                                 input: Annotated[str, Field(description="The topic to search for")]) -> str:
+    async def search_github_docs(input: Annotated[str, Field(description="The topic to search for")]) -> str:
         """Search for relevant GitHub documentation."""
         async with get_ai_foundry_client() as client:
 
@@ -160,8 +154,7 @@ class Tools:
     @ai_function(name="search_aws_docs",
                  description="Search for relevant AWS documentation for a given topic.")
     @cl.step(type="tool", name="Search AWS Documentation")
-    async def search_aws_docs(self,
-                              input: Annotated[str, Field(description="The topic to search for")]) -> str:
+    async def search_aws_docs(input: Annotated[str, Field(description="The topic to search for")]) -> str:
         """Search for relevant AWS documentation."""
 
         async with streamablehttp_client("https://knowledge-mcp.global.api.aws") as (
