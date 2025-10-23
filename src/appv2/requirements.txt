@@ -1,0 +1,11 @@
+dotenv
+chainlit
+openai
+azure-cosmos
+azure-storage-blob
+azure-ai-projects
+azure-identity
+asyncpg
+psycopg2-binary
+agent-framework
+mcp[cli]
