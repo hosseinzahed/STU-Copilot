@@ -29,7 +29,7 @@ if not github_docs_search_agent_id:
         "GITHUB_DOCS_SEARCH_AGENT_ID environment variable is not set.")
 
 
-class GitHubPlugin:
+class Tools:
     """A plugin to search GitHub repositories."""
 
     @ai_function(name="search_github_repositories",
@@ -45,10 +45,6 @@ class GitHubPlugin:
                     "stars_count", "archived", "updated_at"],
             top_count=10)
         return results
-
-
-class MicrosoftDocsPlugin:
-    """A plugin to search Microsoft documentation."""
 
     @ai_function(name="search_microsoft_docs",
                  description="Search for relevant Microsoft documentation for a given topic.")
@@ -100,10 +96,6 @@ class MicrosoftDocsPlugin:
 
                 return json.dumps(aggregated_results, indent=2, ensure_ascii=False)
 
-
-class BlogPostsPlugin:
-    """A plugin to search blog posts."""
-
     @ai_function(name="search_blog_posts",
                  description="Search for relevant blog posts for a given topic.")
     @cl.step(type="tool", name="Search Blog Posts")
@@ -116,10 +108,6 @@ class BlogPostsPlugin:
             fields=["title", "description", "published_date", "url"],
             top_count=5)
         return results
-
-
-class SeismicPlugin:
-    """A plugin to search seismic presentations."""
 
     @ai_function(name="search_seismic_presentations",
                  description="Search for relevant Seismic presentations for a given topic.")
@@ -135,13 +123,9 @@ class SeismicPlugin:
             top_count=10)
         return results
 
-
-class BingPlugin:
-    """A plugin to perform search by Bing."""
-
     @ai_function(name="search_by_bing", description="Search by Bing for a given query.")
     @cl.step(type="tool", name="Search by Bing")
-    async def search_by_bing(self, 
+    async def search_by_bing(self,
                              input: Annotated[str, Field(description="The query to search for")]) -> str:
         """Perform a Bing search."""
         async with get_ai_foundry_client() as client:
@@ -153,16 +137,12 @@ class BingPlugin:
             response = await agent.run(messages=[message])
             if not response:
                 return "Could not retrieve results from Bing Search."
-            return response
-
-
-class GitHubDocsPlugin:
-    """A plugin to search GitHub documentation."""
+            return response.text
 
     @ai_function(name="search_github_docs",
                  description="Search for relevant GitHub documentation for a given topic.")
     @cl.step(type="tool", name="Search GitHub Documentation")
-    async def search_github_docs(self, 
+    async def search_github_docs(self,
                                  input: Annotated[str, Field(description="The topic to search for")]) -> str:
         """Search for relevant GitHub documentation."""
         async with get_ai_foundry_client() as client:
@@ -175,16 +155,12 @@ class GitHubDocsPlugin:
             response = await agent.run(messages=[message])
             if not response:
                 return "Could not retrieve results from GitHub Docs Portal."
-            return response
-
-
-class AWSDocsPlugin:
-    """A plugin to search AWS documentation."""
+            return response.text
 
     @ai_function(name="search_aws_docs",
                  description="Search for relevant AWS documentation for a given topic.")
     @cl.step(type="tool", name="Search AWS Documentation")
-    async def search_aws_docs(self, 
+    async def search_aws_docs(self,
                               input: Annotated[str, Field(description="The topic to search for")]) -> str:
         """Search for relevant AWS documentation."""
 
@@ -232,10 +208,4 @@ async def get_ai_foundry_client():
         yield client
 
 # Global instances
-github_plugin = GitHubPlugin()
-github_docs_plugin = GitHubDocsPlugin()
-microsoft_docs_plugin = MicrosoftDocsPlugin()
-blog_posts_plugin = BlogPostsPlugin()
-seismic_plugin = SeismicPlugin()
-bing_plugin = BingPlugin()
-aws_docs_plugin = AWSDocsPlugin()
+tools = Tools()
