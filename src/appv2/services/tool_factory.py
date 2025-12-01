@@ -5,14 +5,24 @@ import chainlit as cl
 from typing import Annotated
 from pydantic import Field
 from .cosmos_db_service import cosmos_db_service
-from agent_framework import ai_function, ChatAgent, ChatMessage
+from agent_framework import ai_function, ChatAgent, ChatMessage, MCPStreamableHTTPTool
+from agent_framework.azure import AzureOpenAIChatClient
 from mcp import ClientSession, types
-from mcp.client.streamable_http import streamablehttp_client
 from azure.identity.aio import DefaultAzureCredential
 from azure.ai.projects.aio import AIProjectClient
 
 
 # Environment variables for AI Foundry project endpoint and agent IDs
+azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+if not azure_openai_endpoint:
+    raise EnvironmentError(
+        "AZURE_OPENAI_ENDPOINT environment variable is not set.")
+
+ai_foundry_key = os.getenv("AI_FOUNDRY_KEY")
+if not ai_foundry_key:
+    raise EnvironmentError(
+        "AI_FOUNDRY_KEY environment variable is not set.")
+
 ai_foundry_project_endpoint = os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT")
 if not ai_foundry_project_endpoint:
     raise EnvironmentError(
@@ -30,7 +40,7 @@ if not github_docs_search_agent_id:
 
 
 class Tools:
-    """Collection of AI functions as tools."""    
+    """Collection of AI functions as tools."""
 
     @ai_function(name="search_github_repositories",
                  description="Search for relevant GitHub repositories for a given topic.")
@@ -48,51 +58,27 @@ class Tools:
     @ai_function(name="search_microsoft_docs",
                  description="Search for relevant Microsoft documentation for a given topic.")
     @cl.step(type="tool", name="Search Microsoft Documentation")
-    async def search_microsoft_docs(input: Annotated[str, Field(description="The topic to search for")]) -> str:
+    async def search_microsoft_docs(prompt: Annotated[str, Field(description="The topic to search for")]) -> str:
         """Search for relevant Microsoft documentation."""
 
-        async with streamablehttp_client("https://learn.microsoft.com/api/mcp") as (
-            read_stream,
-            write_stream,
-            _,
+        async with (
+            MCPStreamableHTTPTool(
+                name="Microsoft Docs MCP Tool",
+                url="https://learn.microsoft.com/api/mcp"
+            ) as mcp_server,
+            ChatAgent(
+                chat_client=AzureOpenAIChatClient(
+                    endpoint=azure_openai_endpoint,
+                    api_key=ai_foundry_key,
+                    deployment_name="gpt-5-mini"
+                ),
+                name="Microsoft Docs Agent",
+                instructions="You help with Microsoft documentation questions.",
+                tools=[mcp_server]
+            ) as agent,
         ):
-            # Create a session using the client streams
-            async with ClientSession(read_stream, write_stream) as session:
-                # Initialize the connection
-                await session.initialize()
-
-                # Call the Microsoft Docs MCP tool
-                response = await session.call_tool(
-                    "microsoft_docs_search",
-                    arguments={
-                        "query": input
-                    }
-                )
-                if response.isError or not response.content or not response.content[0] or not response.content[0].text:
-                    return "Could not retrieve results from Microsoft Docs Portal."
-
-                data = json.loads(response.content[0].text)
-
-                aggregated = {}
-
-                for item in data:
-                    title = item["title"]
-                    content = item["content"]
-                    heading = f"# {title}\n"
-                    # Remove the heading from the content if it exists
-                    if content.startswith(heading):
-                        content = content[len(heading):]
-                    if title in aggregated:
-                        aggregated[title].append(content)
-                    else:
-                        aggregated[title] = [content]
-
-                aggregated_results = [
-                    {"title": title, "content": "\n\n".join(contents)}
-                    for title, contents in aggregated.items()
-                ]
-
-                return json.dumps(aggregated_results, indent=2, ensure_ascii=False)
+            result = await agent.run(messages=prompt)
+            return result.text
 
     @ai_function(name="search_blog_posts",
                  description="Search for relevant blog posts for a given topic.")
