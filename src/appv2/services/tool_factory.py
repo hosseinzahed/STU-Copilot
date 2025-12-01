@@ -1,16 +1,13 @@
 import os
 from contextlib import asynccontextmanager
-import json
 import chainlit as cl
 from typing import Annotated
 from pydantic import Field
 from .cosmos_db_service import cosmos_db_service
-from agent_framework import ai_function, ChatAgent, ChatMessage, MCPStreamableHTTPTool
-from agent_framework.azure import AzureOpenAIChatClient
-from mcp import ClientSession, types
+from agent_framework import ai_function, ChatAgent, MCPStreamableHTTPTool
+from agent_framework.azure import AzureOpenAIChatClient, AzureAIAgentClient
 from azure.identity.aio import DefaultAzureCredential
 from azure.ai.projects.aio import AIProjectClient
-
 
 # Environment variables for AI Foundry project endpoint and agent IDs
 azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -114,16 +111,20 @@ class Tools:
     @cl.step(type="tool", name="Search by Bing")
     async def search_by_bing(prompt: Annotated[str, Field(description="The query to search for")]) -> str:
         """Perform a Bing search."""
-        async with get_ai_foundry_client() as client:
-            agent: ChatAgent = await client.agents.get_agent(agent_id=bing_search_agent_id)
-            message = ChatMessage(
-                role="user",
-                text=prompt
-            )
-            response = await agent.run(messages=[message])
-            if not response:
-                return "Could not retrieve results from Bing Search."
-            return response.text
+
+        async with (
+            DefaultAzureCredential() as credential,
+            ChatAgent(
+                chat_client=AzureAIAgentClient(
+                    async_credential=credential,
+                    project_endpoint=ai_foundry_project_endpoint,
+                    agent_id=bing_search_agent_id                                        
+                ),
+                instructions="You help with web search queries using Bing.",
+            ) as agent,
+        ):
+            result = await agent.run(messages=prompt)
+            return result.text
 
     @ai_function(name="search_github_docs",
                  description="Search for relevant GitHub documentation for a given topic.")
