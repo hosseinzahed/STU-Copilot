@@ -139,6 +139,7 @@ class Tools:
                     "Authorization": f"Bearer {github_token}",
                     "Content-Type": "application/json"
                 },
+                allowed_tools=["github_support_docs_search"]
             ) as mcp_server,
             ChatAgent(
                 chat_client=AzureOpenAIChatClient(
