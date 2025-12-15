@@ -64,7 +64,7 @@ class AgentFactory:
     def get_orchestrator_agent(self) -> ChatAgent:
         """Create an orchestrator agent with the necessary plugins."""
         agent_name = "orchestrator_agent"
-        model_name = "gpt-4.1-mini"
+        model_name = "gpt-5-mini"
 
         # Create the agent
         orchestrator_agent = ChatAgent(
@@ -108,16 +108,19 @@ class AgentFactory:
     def get_microsoft_docs_agent(self) -> ChatAgent:
         """Create a Microsoft Docs agent with the necessary plugins."""
         agent_name = "microsoft_docs_agent"
-        model_name = "gpt-4.1"
+        model_name = "gpt-4.1-mini"
 
         # Create the agent
         microsoft_docs_agent = ChatAgent(
             chat_client=self.chat_client,
             name=agent_name,
             description="Microsoft Docs agent that fetches relevant documentation from Microsoft Docs.",
-            instructions=cache_service.load_prompt(agent_name),
+            # instructions=cache_service.load_prompt(agent_name),
+            instructions="""You are a helpful assistant that provides information from Microsoft Docs. 
+            Use the provided tool to search for relevant documentation based on user queries. 
+            Always cite your sources with appropriate links.""",
             model_id=model_name,
-            tools=[tools.search_microsoft_docs]
+            tools=[tools.search_microsoft_docs]            
         )
 
         return microsoft_docs_agent

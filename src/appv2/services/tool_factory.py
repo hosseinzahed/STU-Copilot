@@ -54,7 +54,7 @@ class Tools:
             container_name="github-repos",
             fields=["name", "url", "description",
                     "stars_count", "archived", "updated_at"],
-            top_count=10)
+            top_count=5)
         return results
 
     @ai_function(name="search_microsoft_docs",
@@ -72,7 +72,7 @@ class Tools:
                 chat_client=AzureOpenAIChatClient(
                     endpoint=azure_openai_endpoint,
                     api_key=ai_foundry_key,
-                    deployment_name="gpt-5-mini"
+                    deployment_name="gpt-5.2-chat"
                 ),
                 name="Microsoft Docs Agent",
                 instructions="You help with Microsoft documentation questions.",
@@ -104,7 +104,7 @@ class Tools:
             container_name="seismic-contents",
             fields=["name", "url", "description", "last_update", "expiration_date",
                     "level", "solution_area", "format", "size", "confidentiality"],
-            top_count=10)
+            top_count=5)
         return results
 
     @ai_function(name="search_by_bing", description="Search by Bing for a given query.")
@@ -145,7 +145,7 @@ class Tools:
                 chat_client=AzureOpenAIChatClient(
                     endpoint=azure_openai_endpoint,
                     api_key=ai_foundry_key,
-                    deployment_name="gpt-5-mini"
+                    deployment_name="gpt-5.2-chat"
                 ),
                 name="GitHub Docs Agent",
                 instructions="You help with GitHub support documentation questions.",
@@ -170,7 +170,7 @@ class Tools:
                 chat_client=AzureOpenAIChatClient(
                     endpoint=azure_openai_endpoint,
                     api_key=ai_foundry_key,
-                    deployment_name="gpt-5-mini"
+                    deployment_name="gpt-5.2-chat"
                 ),
                 name="AWS Docs Agent",
                 instructions="You help with AWS documentation questions.",

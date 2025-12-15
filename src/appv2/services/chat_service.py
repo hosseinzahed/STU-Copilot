@@ -146,14 +146,14 @@ class ChatService:
         # Return all the actions except the one for the specified agent
         actions: List[cl.Action] = []
 
-        for agent_key, agent in self.agents_dict.items():
-            if agent["is_action"] and agent_key != agent_name:
-                actions.append(cl.Action(
-                    name=agent["action_name"],
-                    label=agent["description"],
-                    payload={"command": agent["command"]},
-                    icon=agent["icon"]
-                ))
+        # for agent_key, agent in self.agents_dict.items():
+        #     if agent["is_action"] and agent_key != agent_name:
+        #         actions.append(cl.Action(
+        #             name=agent["action_name"],
+        #             label=agent["description"],
+        #             payload={"command": agent["command"]},
+        #             icon=agent["icon"]
+        #         ))
 
         return actions
 
@@ -178,8 +178,11 @@ class ChatService:
 
         # If the current message is not a command, determine the agent based on the chat history
         elif latest_agent_name is None:
-            return agents.get("questioner_agent")
+            #return agents.get("questioner_agent")
+            return agents.get("orchestrator_agent")
         elif latest_agent_name == "questioner_agent":
+            return agents.get("microsoft_docs_agent")
+        elif latest_agent_name == "microsoft_docs_agent":
             return agents.get("microsoft_docs_agent")
         elif latest_agent_name == "explainer_agent":
             return agents.get("explainer_agent")
