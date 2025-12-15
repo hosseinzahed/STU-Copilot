@@ -1,7 +1,8 @@
 import os
 import logging
-from agent_framework import ChatAgent
-from agent_framework.azure import AzureOpenAIChatClient
+from agent_framework import ChatAgent, MCPStreamableHTTPTool
+from agent_framework.azure import AzureOpenAIChatClient, AzureAIAgentClient
+from azure.identity.aio import DefaultAzureCredential
 from .cache_service import cache_service
 from .tool_factory import tools
 
@@ -18,7 +19,22 @@ class AgentFactory:
         self.api_key = os.getenv("AI_FOUNDRY_KEY")
         if not self.endpoint or not self.api_key:
             raise EnvironmentError(
-                "Missing Azure Open AI endpoint or API key.")
+                "AZURE_OPENAI_ENDPOINT or AI_FOUNDRY_KEY environment variable is not set.")
+
+        self.project_endpoint = os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT")
+        if not self.project_endpoint:
+            raise EnvironmentError(
+                "AI_FOUNDRY_PROJECT_ENDPOINT environment variable is not set.")
+
+        self.bing_search_agent_id = os.getenv("BING_SEARCH_AGENT_ID")
+        if not self.bing_search_agent_id:
+            raise EnvironmentError(
+                "BING_SEARCH_AGENT_ID environment variable is not set.")
+
+        self.github_token = os.getenv("GITHUB_TOKEN")
+        if not self.github_token:
+            raise EnvironmentError(
+                "GITHUB_TOKEN environment variable is not set.")
 
         self.chat_client = AzureOpenAIChatClient(
             endpoint=self.endpoint,
@@ -108,19 +124,27 @@ class AgentFactory:
     def get_microsoft_docs_agent(self) -> ChatAgent:
         """Create a Microsoft Docs agent with the necessary plugins."""
         agent_name = "microsoft_docs_agent"
-        model_name = "gpt-4.1-mini"
+        model_name = "gpt-5.2-chat"
 
-        # Create the agent
+        mcp_server = MCPStreamableHTTPTool(
+            name="Microsoft Docs MCP Tool",
+            url="https://learn.microsoft.com/api/mcp"
+        )
+
         microsoft_docs_agent = ChatAgent(
-            chat_client=self.chat_client,
+            chat_client=AzureOpenAIChatClient(
+                endpoint=self.endpoint,
+                api_key=self.api_key,
+                deployment_name=model_name
+            ),
             name=agent_name,
-            description="Microsoft Docs agent that fetches relevant documentation from Microsoft Docs.",
-            # instructions=cache_service.load_prompt(agent_name),
-            instructions="""You are a helpful assistant that provides information from Microsoft Docs. 
-            Use the provided tool to search for relevant documentation based on user queries. 
-            Always cite your sources with appropriate links.""",
-            model_id=model_name,
-            tools=[tools.search_microsoft_docs]            
+            instructions="""
+                You are a helpful assistant that provides information from Microsoft Docs.
+                Always Use the provided tool to search for relevant documentation based on user queries.
+                Provide accurate and concise information and also cite your sources with appropriate links.
+                Provide suggestions for related topics the user might find useful.
+            """,
+            tools=[mcp_server]
         )
 
         return microsoft_docs_agent
@@ -162,16 +186,16 @@ class AgentFactory:
     def get_bing_search_agent(self) -> ChatAgent:
         """Create a Bing Search agent with the necessary plugins."""
         agent_name = "bing_search_agent"
-        model_name = "gpt-4.1-mini"
 
-        # Create the agent
         bing_search_agent = ChatAgent(
-            chat_client=self.chat_client,
+            chat_client=AzureAIAgentClient(
+                async_credential=DefaultAzureCredential(),
+                project_endpoint=self.project_endpoint,
+                agent_id=self.bing_search_agent_id
+            ),
             name=agent_name,
             description="Bing Search agent that performs web searches to find relevant information.",
-            instructions=cache_service.load_prompt(agent_name),
-            model_id=model_name,
-            tools=[tools.search_by_bing]
+            instructions="You help with web search queries using Bing.",
         )
 
         return bing_search_agent
@@ -179,16 +203,34 @@ class AgentFactory:
     def get_github_docs_search_agent(self) -> ChatAgent:
         """Create a GitHub Docs Search agent with the necessary plugins."""
         agent_name = "github_docs_search_agent"
-        model_name = "gpt-4.1-mini"
+        model_name = "gpt-5.2-chat"
 
-        # Create the agent
+        mcp_server = MCPStreamableHTTPTool(
+            name="GitHub Docs MCP Tool",
+            url="https://api.githubcopilot.com/mcp",
+            headers={
+                "Authorization": f"Bearer {self.github_token}",
+                "Content-Type": "application/json",
+                "X-MCP-Tools": "github_support_docs_search"
+            },
+            approval_mode="never_require",
+        )
+
         github_docs_search_agent = ChatAgent(
-            chat_client=self.chat_client,
+            chat_client=AzureOpenAIChatClient(
+                endpoint=self.endpoint,
+                api_key=self.api_key,
+                deployment_name=model_name
+            ),
             name=agent_name,
-            description="GitHub Docs Search agent that performs searches to find relevant documentation.",
-            instructions=cache_service.load_prompt(agent_name),
-            model_id=model_name,
-            tools=[tools.search_github_docs]
+            instructions="""
+                You help with GitHub support documentation questions.
+                Never use prior knowledge.
+                Phrase user queries like "query: <user question>" to use the tool.
+                Always use the provided tool to search for relevant documentation based on user queries.
+                Provide accurate and concise information and also cite your sources with appropriate links.
+            """,
+            tools=[mcp_server]
         )
 
         return github_docs_search_agent
@@ -196,16 +238,28 @@ class AgentFactory:
     def get_aws_docs_agent(self) -> ChatAgent:
         """Create an AWS Docs agent with the necessary plugins."""
         agent_name = "aws_docs_agent"
-        model_name = "gpt-4.1-mini"
+        model_name = "gpt-5.2-chat"
 
-        # Create the agent
+        mcp_server = MCPStreamableHTTPTool(
+            name="AWS MCP Tool",
+            url="https://knowledge-mcp.global.api.aws",
+            load_prompts=False
+        )
+
         aws_docs_agent = ChatAgent(
-            chat_client=self.chat_client,
+            chat_client=AzureOpenAIChatClient(
+                endpoint=self.endpoint,
+                api_key=self.api_key,
+                deployment_name=model_name
+            ),
             name=agent_name,
-            description="AWS Docs agent that fetches relevant documentation from AWS Docs.",
-            instructions=cache_service.load_prompt(agent_name),
-            model_id=model_name,
-            tools=[tools.search_aws_docs]
+            instructions="""
+                You are a helpful assistant that provides information from AWS Docs.
+                Use the provided tool to search for relevant documentation based on user queries.
+                Always Provide accurate and concise information and also cite your sources with appropriate links.
+                Provide suggestions for related topics the user might find useful.
+            """,
+            tools=[mcp_server]
         )
 
         return aws_docs_agent
@@ -223,7 +277,6 @@ class AgentFactory:
             instructions=cache_service.load_prompt(agent_name),
             model_id=model_name,
             tools=[
-                tools.search_microsoft_docs,
                 tools.search_by_bing
             ]
         )
@@ -233,7 +286,7 @@ class AgentFactory:
     def get_summarizer_agent(self) -> ChatAgent:
         """Create a summarizer agent with the necessary plugins."""
         agent_name = "summarizer_agent"
-        model_name = "gpt-4.1-mini"
+        model_name = "gpt-5.2-chat"
 
         # Create the agent
         summarizer_agent = ChatAgent(
@@ -249,7 +302,7 @@ class AgentFactory:
     def get_explainer_agent(self) -> ChatAgent:
         """Create an explainer agent with the necessary plugins."""
         agent_name = "explainer_agent"
-        model_name = "gpt-4.1"
+        model_name = "gpt-5.2-chat"
 
         # Create the agent
         explainer_agent = ChatAgent(
