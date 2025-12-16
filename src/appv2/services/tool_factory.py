@@ -7,23 +7,6 @@ from agent_framework import ai_function, ChatAgent
 from agent_framework.azure import AzureAIAgentClient
 from azure.identity.aio import DefaultAzureCredential
 
-# Environment variables for AI Foundry project endpoint and agent IDs
-
-ai_foundry_key = os.getenv("AI_FOUNDRY_KEY")
-if not ai_foundry_key:
-    raise EnvironmentError(
-        "AI_FOUNDRY_KEY environment variable is not set.")
-
-ai_foundry_project_endpoint = os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT")
-if not ai_foundry_project_endpoint:
-    raise EnvironmentError(
-        "AI_FOUNDRY_PROJECT_ENDPOINT environment variable is not set.")
-
-bing_search_agent_id = os.getenv("BING_SEARCH_AGENT_ID")
-if not bing_search_agent_id:
-    raise EnvironmentError(
-        "BING_SEARCH_AGENT_ID environment variable is not set.")
-
 
 class Tools:
     """Collection of AI functions as tools."""
@@ -76,8 +59,8 @@ class Tools:
             ChatAgent(
                 chat_client=AzureAIAgentClient(
                     async_credential=credential,
-                    project_endpoint=ai_foundry_project_endpoint,
-                    agent_id=bing_search_agent_id
+                    project_endpoint=os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT"),
+                    agent_id=os.getenv("BING_SEARCH_AGENT_ID")
                 ),
                 instructions="You help with web search queries using Bing.",
             ) as agent,

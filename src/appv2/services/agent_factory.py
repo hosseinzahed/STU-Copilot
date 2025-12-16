@@ -17,25 +17,9 @@ class AgentFactory:
     def __init__(self):
         self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.api_key = os.getenv("AI_FOUNDRY_KEY")
-        if not self.endpoint or not self.api_key:
-            raise EnvironmentError(
-                "AZURE_OPENAI_ENDPOINT or AI_FOUNDRY_KEY environment variable is not set.")
-
         self.project_endpoint = os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT")
-        if not self.project_endpoint:
-            raise EnvironmentError(
-                "AI_FOUNDRY_PROJECT_ENDPOINT environment variable is not set.")
-
         self.bing_search_agent_id = os.getenv("BING_SEARCH_AGENT_ID")
-        if not self.bing_search_agent_id:
-            raise EnvironmentError(
-                "BING_SEARCH_AGENT_ID environment variable is not set.")
-
         self.github_token = os.getenv("GITHUB_TOKEN")
-        if not self.github_token:
-            raise EnvironmentError(
-                "GITHUB_TOKEN environment variable is not set.")
-
         self.chat_client = AzureOpenAIChatClient(
             endpoint=self.endpoint,
             api_key=self.api_key,

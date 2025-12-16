@@ -78,7 +78,7 @@ class ChatService:
                 "icon": "search",
                 "is_button": False,
                 "is_persistent": False,
-                "is_command": False,
+                "is_command": True,
                 "is_action": True,
                 "command": "Bing Search",
                 "action_name": "action_button",

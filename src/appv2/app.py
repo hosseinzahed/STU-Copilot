@@ -8,6 +8,10 @@ import logging
 import socketio
 from engineio.payload import Payload
 from chainlit.types import ThreadDict
+from utils import check_env_vars
+
+# Check for required environment variables
+check_env_vars()
 
 
 # Set the buffer size to 10MB or use a configurable value from the environment
@@ -47,7 +51,6 @@ async def oauth_callback(
     raw_user_data: Dict[str, str],
     default_user: cl.User,
 ) -> Optional[cl.User]:
-    print(f"OAuth callback for provider {provider_id}")
     default_user.identifier = raw_user_data["mail"]
     default_user.display_name = raw_user_data["displayName"]
     default_user.metadata["user_id"] = raw_user_data["id"]
@@ -71,21 +74,8 @@ async def on_chat_start():
     # Initialize the chat service and chat history
     chat_history: list[ChatMessage] = []
 
-    # Construct the welcome message
-    welcome_message = chat_service.get_welcome_message(
-        user_first_name=user.metadata.get(
-            "first_name", "Guest") if user else "Guest",
-        user_job_title=user.metadata.get(
-            "job_title", None) if user else None,
-    )
-
     # Clear the latest agent name
     latest_agent_name = None
-
-    # Show the welcome message to the user
-    await cl.Message(content=welcome_message).send()
-
-    # chat_history.append(ChatMessage(role="assistant", content=welcome_message))
 
     cl.user_session.set("chat_history", chat_history)
     cl.user_session.set("chat_thread", None)
@@ -128,7 +118,7 @@ async def on_message(user_message: cl.Message):
     # Stream the agent's response token by token
     async for token in responder_agent.run_stream(
             messages=messages,
-            #thread=chat_thread
+            # thread=chat_thread
     ):
         if token.text:
             await answer.stream_token(token.text)
