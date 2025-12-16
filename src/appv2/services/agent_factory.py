@@ -1,10 +1,10 @@
 import os
 import logging
 from agent_framework import ChatAgent, MCPStreamableHTTPTool
-from agent_framework.azure import AzureOpenAIChatClient, AzureAIAgentClient
-from azure.identity.aio import DefaultAzureCredential
+from agent_framework.azure import AzureOpenAIChatClient
 from .cache_service import cache_service
 from .tool_factory import tools
+from .web_search import get_web_search_agent
 
 # Configure logging
 logging.basicConfig(level=logging.CRITICAL)
@@ -18,7 +18,6 @@ class AgentFactory:
         self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.api_key = os.getenv("AI_FOUNDRY_KEY")
         self.project_endpoint = os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT")
-        self.bing_search_agent_id = os.getenv("BING_SEARCH_AGENT_ID")
         self.github_token = os.getenv("GITHUB_TOKEN")
         self.chat_client = AzureOpenAIChatClient(
             endpoint=self.endpoint,
@@ -80,7 +79,7 @@ class AgentFactory:
                 self.agents.get("github_docs_search_agent").as_tool(),
                 self.agents.get("blog_posts_agent").as_tool(),
                 self.agents.get("seismic_agent").as_tool(),
-                self.agents.get("bing_search_agent").as_tool(),
+                # self.agents.get("bing_search_agent").as_tool(),
                 self.agents.get("aws_docs_agent").as_tool(),
                 self.agents.get("explainer_agent").as_tool(),
             ]
@@ -170,16 +169,18 @@ class AgentFactory:
     def get_bing_search_agent(self) -> ChatAgent:
         """Create a Bing Search agent with the necessary plugins."""
         agent_name = "bing_search_agent"
+        model_name = "gpt-4.1-nano"
 
-        bing_search_agent = ChatAgent(
-            chat_client=AzureAIAgentClient(
-                async_credential=DefaultAzureCredential(),
-                project_endpoint=self.project_endpoint,
-                agent_id=self.bing_search_agent_id
-            ),
+        # Use the web search agent function
+
+        bing_search_agent = get_web_search_agent(
+            model=model_name,
             name=agent_name,
-            description="Bing Search agent that performs web searches to find relevant information.",
-            instructions="You help with web search queries using Bing.",
+            instructions="""
+                You are a helpful assistant that provides information by searching the web.
+                Use the provided tool to search for relevant information based on user queries.
+                Always provide the answers in English.
+            """
         )
 
         return bing_search_agent

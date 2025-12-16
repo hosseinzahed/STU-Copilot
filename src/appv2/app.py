@@ -117,8 +117,7 @@ async def on_message(user_message: cl.Message):
 
     # Stream the agent's response token by token
     async for token in responder_agent.run_stream(
-            messages=messages,
-            # thread=chat_thread
+            messages=messages
     ):
         if token.text:
             await answer.stream_token(token.text)
