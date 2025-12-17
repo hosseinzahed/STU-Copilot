@@ -1,7 +1,7 @@
 import chainlit as cl
 from typing import Optional, List
 from chainlit.types import CommandDict
-from semantic_kernel.agents import ChatCompletionAgent
+from agent_framework import ChatAgent
 from .agent_factory import agent_factory
 
 
@@ -158,9 +158,9 @@ class ChatService:
         return actions
 
     def select_responder_agent(self,
-                               agents: dict[str, ChatCompletionAgent],
+                               agents: dict[str, ChatAgent],
                                current_message: cl.Message,
-                               latest_agent_name: str) -> ChatCompletionAgent:
+                               latest_agent_name: str) -> ChatAgent:
         """Select the appropriate agent based on the current message and chat history."""
 
         print(f"Current message command: {current_message.command}")
@@ -171,14 +171,14 @@ class ChatService:
             # Select the agent based on the command from self.agents_dict
             for agent in self.agents_dict.values():
                 if agent["is_action"] and agent["command"] == current_message.command:
-                    selected_agent: ChatCompletionAgent = agent["agent_object"]
+                    selected_agent: ChatAgent = agent["agent_object"]
                     print(
                         f"Selected agent for command '{current_message.command}': {selected_agent.name}")
                     return selected_agent
 
         # If the current message is not a command, determine the agent based on the chat history
         elif latest_agent_name is None:
-            #return agents.get("questioner_agent")
+            # return agents.get("questioner_agent")
             return agents.get("orchestrator_agent")
         elif latest_agent_name == "questioner_agent":
             return agents.get("microsoft_docs_agent")

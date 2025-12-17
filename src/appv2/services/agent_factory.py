@@ -1,7 +1,8 @@
 import os
 import logging
-from agent_framework import ChatAgent, MCPStreamableHTTPTool
-from agent_framework.azure import AzureOpenAIChatClient
+from agent_framework import ChatAgent, MCPStreamableHTTPTool, HostedWebSearchTool
+from agent_framework.azure import AzureOpenAIChatClient, AzureAIAgentClient
+from azure.identity.aio import DefaultAzureCredential
 from .cache_service import cache_service
 from .tool_factory import tools
 from .web_search import get_web_search_agent
@@ -22,7 +23,7 @@ class AgentFactory:
         self.chat_client = AzureOpenAIChatClient(
             endpoint=self.endpoint,
             api_key=self.api_key,
-            deployment_name="gpt-4.1-mini"
+            deployment_name="gpt-5.2-chat"
         )
 
         self.agents = {
@@ -169,19 +170,24 @@ class AgentFactory:
     def get_bing_search_agent(self) -> ChatAgent:
         """Create a Bing Search agent with the necessary plugins."""
         agent_name = "bing_search_agent"
-        model_name = "gpt-4.1-nano"
+        model_name = "gpt-4.1-mini"
 
-        # Use the web search agent function
-
-        bing_search_agent = get_web_search_agent(
-            model=model_name,
+        # Create the agent
+        bing_search_agent = ChatAgent(
             name=agent_name,
+            model_name=model_name,
+            chat_client=AzureAIAgentClient(
+                credential=DefaultAzureCredential(),
+                project_endpoint=self.project_endpoint,
+                model_deployment_name=model_name,
+                agent_id=os.getenv("BING_SEARCH_AGENT_ID")
+            ),
             instructions="""
                 You are a helpful assistant that provides information by searching the web.
                 Use the provided tool to search for relevant information based on user queries.
-                Always provide the answers in English.
-            """
-        )
+                Always provide the answers in English. Provide the citations for your sources.
+            """,                  
+        )       
 
         return bing_search_agent
 
