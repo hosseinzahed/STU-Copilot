@@ -96,34 +96,25 @@ async def on_message(user_message: cl.Message):
 
     print(f"Selected responder agent: {responder_agent.name}")
 
-    agent_actions = chat_service.get_actions(
-        agent_name=responder_agent.name)
-
     # Set the latest agent in the user session
     cl.user_session.set("latest_agent_name", responder_agent.name)
 
-    chat_history.append(ChatMessage(role="user", content=user_message.content))
-    answer = cl.Message(content="", actions=agent_actions)
-
-    # Select which messages to send to the agent
-    messages = chat_history if responder_agent.name in [
-        "orchestrator_agent",
-        "questioner_agent",
-        "planner_agent"
-    ] else user_message.content
+    chat_history.append(ChatMessage(role="user", text=user_message.content))
+    answer = cl.Message(content="")
 
     # Set the latest agent in the user session
     cl.user_session.set("latest_agent", responder_agent.name)
 
     # Stream the agent's response token by token
     async for token in responder_agent.run_stream(
-            messages=messages
+            messages=chat_history,
+            chat_thread=chat_thread
     ):
         if token.text:
             await answer.stream_token(token.text)
 
     cl.user_session.set("chat_thread", chat_thread)
-    chat_history.append(ChatMessage(role="assistant", content=answer.content))
+    chat_history.append(ChatMessage(role="assistant", text=answer.content))
 
     # Send the final message
     await answer.send()

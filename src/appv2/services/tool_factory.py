@@ -3,13 +3,13 @@ import chainlit as cl
 from typing import Annotated
 from pydantic import Field
 from .cosmos_db_service import cosmos_db_service
-from agent_framework import ai_function, ChatAgent
+from agent_framework import ai_function, ChatAgent, MCPStreamableHTTPTool
 from agent_framework.azure import AzureAIAgentClient
 from azure.identity.aio import DefaultAzureCredential
 
 
 class Tools:
-    """Collection of AI functions as tools."""
+    """Collection of AI functions as tools."""    
 
     @ai_function(name="search_github_repositories",
                  description="Search for relevant GitHub repositories for a given topic.")
