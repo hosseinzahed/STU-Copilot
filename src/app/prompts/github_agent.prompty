@@ -17,6 +17,7 @@ Your job: Search for GitHub repositories and present results in a markdown table
 
 - Use ISO 8601 (YYYY-MM-DD) for all dates.
 - Include ALL fields in the order shown above, with correct markdown and punctuation.
+- Summarize the description to 25 words or fewer.
 - DO NOT add any commentary, lists, headers, or extra formatting—just the tables.
 - If no results, reply with exactly: No results found.
 - Do not generate or make up content—only use data from `github_tool`.

@@ -1,7 +1,6 @@
 import chainlit as cl
-from typing import Optional, List
 from chainlit.types import CommandDict
-from semantic_kernel.agents import ChatCompletionAgent
+from agent_framework import ChatAgent
 from .agent_factory import agent_factory
 
 
@@ -17,7 +16,7 @@ class ChatService:
                 "description": "Search Microsoft documentation",
                 "icon": "file-search",
                 "is_button": False,
-                "is_persistent": False,
+                "is_persistent": True,
                 "is_command": True,
                 "is_action": True,
                 "command": "Microsoft Docs",
@@ -29,7 +28,7 @@ class ChatService:
                 "description": "Search GitHub documentation",
                 "icon": "file-search",
                 "is_button": False,
-                "is_persistent": False,
+                "is_persistent": True,
                 "is_command": True,
                 "is_action": True,
                 "command": "GitHub Docs",
@@ -41,7 +40,7 @@ class ChatService:
                 "description": "Search for GitHub repositories",
                 "icon": "github",
                 "is_button": False,
-                "is_persistent": False,
+                "is_persistent": True,
                 "is_command": True,
                 "is_action": True,
                 "command": "GitHub",
@@ -53,7 +52,7 @@ class ChatService:
                 "description": "Search for Seismic content",
                 "icon": "presentation",
                 "is_button": False,
-                "is_persistent": False,
+                "is_persistent": True,
                 "is_command": True,
                 "is_action": True,
                 "command": "Seismic Presentations",
@@ -78,7 +77,7 @@ class ChatService:
                 "icon": "search",
                 "is_button": False,
                 "is_persistent": False,
-                "is_command": False,
+                "is_command": True,
                 "is_action": True,
                 "command": "Bing Search",
                 "action_name": "action_button",
@@ -95,32 +94,8 @@ class ChatService:
                 "command": "AWS Documentation",
                 "action_name": "action_button",
                 "agent_object": agents.get("aws_docs_agent")
-            },
-            "explainer_agent": {
-                "title": "Explainer",
-                "description": "Explain concepts in Layman's terms",
-                "icon": "info",
-                "is_button": False,
-                "is_persistent": False,
-                "is_command": True,
-                "is_action": True,
-                "command": "Explainer",
-                "action_name": "action_button",
-                "agent_object": agents.get("explainer_agent")
-            }
-        }
-
-    def get_welcome_message(self, user_first_name: str, user_job_title: Optional[str] = None) -> str:
-        """Returns the welcome message to the user."""
-
-        welcome_message = f"👋 Hi **{user_first_name}**, welcome to **STU Copilot**! "
-
-        if user_job_title:
-            welcome_message += f"I consider your role as a **{user_job_title}** while assisting you. "
-
-        welcome_message += "If you have any questions or need support related to Microsoft solutions, sales, technical guidance, or industry insights, please let me know. "
-
-        return welcome_message
+            }            
+        }    
 
     def get_commands(self) -> list[CommandDict]:
         """Return the list of available commands."""
@@ -132,35 +107,16 @@ class ChatService:
                 commands.append({
                     "id": agent["title"],
                     "description": agent["description"],
-                    "icon": agent["icon"]
+                    "icon": agent["icon"],
+                    "button": agent["is_button"],
+                    "persistent": agent["is_persistent"]                    
                 })
-        return commands
-
-    def get_actions(self, agent_name: str) -> List[cl.Action]:
-        """Get the actions available for the specified agent."""
-
-        # For specific agents, return no actions
-        if agent_name in ["questioner_agent"]:
-            return []
-
-        # Return all the actions except the one for the specified agent
-        actions: List[cl.Action] = []        
-        
-        for agent_key, agent in self.agents_dict.items():
-            if agent["is_action"] and agent_key != agent_name:
-                actions.append(cl.Action(
-                    name=agent["action_name"],
-                    label=agent["description"],
-                    payload={"command": agent["command"]},
-                    icon=agent["icon"]
-                ))
-
-        return actions
+        return commands    
 
     def select_responder_agent(self,
-                               agents: dict[str, ChatCompletionAgent],
+                               agents: dict[str, ChatAgent],
                                current_message: cl.Message,
-                               latest_agent_name: str) -> ChatCompletionAgent:
+                               latest_agent_name: str) -> ChatAgent:
         """Select the appropriate agent based on the current message and chat history."""
 
         print(f"Current message command: {current_message.command}")
@@ -171,20 +127,16 @@ class ChatService:
             # Select the agent based on the command from self.agents_dict
             for agent in self.agents_dict.values():
                 if agent["is_action"] and agent["command"] == current_message.command:
-                    selected_agent: ChatCompletionAgent = agent["agent_object"]
+                    selected_agent: ChatAgent = agent["agent_object"]
                     print(
                         f"Selected agent for command '{current_message.command}': {selected_agent.name}")
                     return selected_agent
 
         # If the current message is not a command, determine the agent based on the chat history
         elif latest_agent_name is None:
-            return agents.get("questioner_agent")
-        elif latest_agent_name == "questioner_agent":
-            return agents.get("microsoft_docs_agent")
-        elif latest_agent_name == "explainer_agent":
-            return agents.get("explainer_agent")
-        else:
             return agents.get("orchestrator_agent")
+        else:
+            return agents.get(latest_agent_name)
 
 
 # Global instance

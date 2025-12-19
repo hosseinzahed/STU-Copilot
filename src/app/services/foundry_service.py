@@ -1,5 +1,5 @@
 import os
-from openai import AzureOpenAI
+from openai import AzureOpenAI 
 from openai.types import CreateEmbeddingResponse
 import json
 import logging
@@ -21,11 +21,7 @@ class FoundryService:
         self.api_key = os.environ.get('AI_FOUNDRY_KEY')
         self.embedding_model = "text-embedding-3-small"
         self.chat_model = "gpt-4.1-nano"
-        self.api_version = "2024-12-01-preview"
-
-        if not self.endpoint or not self.api_key:
-            raise EnvironmentError(
-                "Azure OpenAI credentials are not set in environment variables.")
+        self.api_version = "2024-12-01-preview"        
 
         self.embedding_client = AzureOpenAI(
             azure_endpoint=self.endpoint,

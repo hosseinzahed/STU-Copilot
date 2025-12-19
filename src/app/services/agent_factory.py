@@ -1,18 +1,12 @@
 import os
-from semantic_kernel import Kernel
-from semantic_kernel.agents import ChatCompletionAgent
-from semantic_kernel.connectors.ai import FunctionChoiceBehavior
-from semantic_kernel.connectors.ai.open_ai import (
-    AzureChatCompletion,
-    OpenAIChatPromptExecutionSettings,
-)
-from .cache_service import cache_service
-from .plugin_factory import (
-    github_plugin, github_docs_plugin, microsoft_docs_plugin,
-    blog_posts_plugin, seismic_plugin, bing_plugin, aws_docs_plugin
-)
+import chainlit as cl
 import logging
-
+from agent_framework import (ChatAgent, MCPStreamableHTTPTool,
+                             agent_middleware, function_middleware)
+from agent_framework.azure import AzureOpenAIChatClient, AzureAIAgentClient
+from azure.identity.aio import DefaultAzureCredential
+from .cache_service import cache_service
+from .tool_factory import tools
 
 # Configure logging
 logging.basicConfig(level=logging.CRITICAL)
@@ -25,347 +19,309 @@ class AgentFactory:
     def __init__(self):
         self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.api_key = os.getenv("AI_FOUNDRY_KEY")
-        if not self.endpoint or not self.api_key:
-            raise EnvironmentError(
-                "Missing Azure Open AI endpoint or API key.")
+        self.project_endpoint = os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT")
+        self.chat_client = AzureOpenAIChatClient(
+            endpoint=self.endpoint,
+            api_key=self.api_key,
+            deployment_name="gpt-5.2-chat"
+        )
 
+        # Initialize agents        
         self.agents = {
-            "questioner_agent": self.get_questioner_agent(),
-            "planner_agent": self.get_planner_agent(),
             "github_agent": self.get_github_agent(),
             "github_docs_search_agent": self.get_github_docs_search_agent(),
             "microsoft_docs_agent": self.get_microsoft_docs_agent(),
             "blog_posts_agent": self.get_blog_posts_agent(),
             "seismic_agent": self.get_seismic_agent(),
             "bing_search_agent": self.get_bing_search_agent(),
-            "architect_agent": self.get_architect_agent(),
-            "summarizer_agent": self.get_summarizer_agent(),
-            "aws_docs_agent": self.get_aws_docs_agent(),
-            "explainer_agent": self.get_explainer_agent(),
+            # "architect_agent": self.get_architect_agent(),
+            "aws_docs_agent": self.get_aws_docs_agent()
         }
         self.agents["orchestrator_agent"] = self.get_orchestrator_agent()
 
-    def create_kernel(self,
-                      agent_name: str,
-                      model_name: str,
-                      api_version: str = "2024-12-01-preview") -> Kernel:
-        """Create a kernel with the desired model."""
-        kernel = Kernel()
-        kernel.add_service(
-            AzureChatCompletion(
-                deployment_name=model_name,
-                endpoint=self.endpoint,
-                api_key=self.api_key,
-                service_id=agent_name,
-                api_version=api_version)
-        )
-
-        return kernel
-
-    def get_agents(self) -> dict[str, ChatCompletionAgent]:
+    def get_agents(self) -> dict[str, ChatAgent]:
         """Get all agents."""
         return self.agents
 
-    def get_orchestrator_agent(self) -> ChatCompletionAgent:
+    def get_orchestrator_agent(self) -> ChatAgent:
         """Create an orchestrator agent with the necessary plugins."""
         agent_name = "orchestrator_agent"
-        model_name = "gpt-4.1-mini"
-
-        # Create a new kernel instance with the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name,
-
-        )
+        model_name = "gpt-5.2-chat"
 
         # Create the agent
-        orchestrator_agent = ChatCompletionAgent(
-            kernel=kernel,
+        orchestrator_agent = ChatAgent(
+            chat_client=self.chat_client,
             name=agent_name,
             description="Orchestrator agent that manages the workflow of other agents.",
-            instructions=cache_service.load_prompt(agent_name),
-            plugins=[
-                self.agents.get("questioner_agent"),
-                self.agents.get("microsoft_docs_agent"),
-                self.agents.get("github_agent"),
-                self.agents.get("github_docs_search_agent"),
-                self.agents.get("blog_posts_agent"),
-                self.agents.get("seismic_agent"),
-                self.agents.get("bing_search_agent"),
-                self.agents.get("aws_docs_agent"),
-                self.agents.get("explainer_agent"),
+            instructions="""
+                You're a helpful assistant assisting users with their requests in the context of Microsoft technologies.
+                Based on the user's input, if necessary, decide which specialized agent to delegate the task to.
+                You have access to the following agents:
+                - Microsoft Docs Agent: For searching Microsoft documentation. You should use this agent to find official Microsoft documentation and provide accurate information.
+                - Bing Search Agent: For performing web searches using Bing. Use this agent to gather up-to-date information from the web.                
+                Provide clear and concise responses, ensuring that the user feels supported throughout their interaction.
+                """,
+            model_id=model_name,
+            tools=[
+                self.agents.get("microsoft_docs_agent").as_tool(
+                    description="Search Microsoft documentation"
+                ),
+                self.agents.get("bing_search_agent").as_tool(
+                    description="Perform web searches using Bing"
+                )
+            ],
+            allow_multiple_tool_calls=True,
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
             ]
         )
 
         return orchestrator_agent
 
-    def get_questioner_agent(self) -> ChatCompletionAgent:
-        """Create a questioner agent with the necessary plugins."""
-        agent_name = "questioner_agent"
-        model_name = "gpt-4.1-nano"
-
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name
-        )
-
-        # Create the agent
-        questioner_agent = ChatCompletionAgent(
-            kernel=kernel,
-            description="Questioner agent that asks clarifying questions to gather more information.",
-            name=agent_name,
-            instructions=cache_service.load_prompt(agent_name)
-        )
-
-        return questioner_agent
-
-    def get_planner_agent(self) -> ChatCompletionAgent:
-        """Create a planner agent with the necessary plugins."""
-        agent_name = "planner_agent"
-        model_name = "o3-mini"
-
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name
-        )
-
-        # Create the agent
-        planner_agent = ChatCompletionAgent(
-            kernel=kernel,
-            name=agent_name,
-            instructions=cache_service.load_prompt(agent_name)
-        )
-
-        return planner_agent
-
-    def get_github_agent(self) -> ChatCompletionAgent:
+    def get_github_agent(self) -> ChatAgent:
         """Create a GitHub agent with the necessary plugins."""
         agent_name = "github_agent"
         model_name = "gpt-4.1-mini"
 
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name,
-        )
-
         # Create the agent
-        github_agent = ChatCompletionAgent(
-            kernel=kernel,
+        github_agent = ChatAgent(
+            chat_client=self.chat_client,
             name=agent_name,
             description="GitHub agent that fetches relevant information from GitHub repositories.",
             instructions=cache_service.load_prompt(agent_name),
-            plugins=[github_plugin]
+            model_id=model_name,
+            tools=[tools.search_github_repositories],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return github_agent
 
-    def get_microsoft_docs_agent(self) -> ChatCompletionAgent:
+    def get_microsoft_docs_agent(self) -> ChatAgent:
         """Create a Microsoft Docs agent with the necessary plugins."""
         agent_name = "microsoft_docs_agent"
-        model_name = "gpt-4.1"
+        model_name = "gpt-5.2-chat"
 
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name
+        # Create the MCP tool
+        mcp_server = MCPStreamableHTTPTool(
+            name="Microsoft Docs MCP Tool",
+            url="https://learn.microsoft.com/api/mcp"
         )
 
         # Create the agent
-        microsoft_docs_agent = ChatCompletionAgent(
-            kernel=kernel,
+        microsoft_docs_agent = ChatAgent(
+            chat_client=AzureOpenAIChatClient(
+                endpoint=self.endpoint,
+                api_key=self.api_key,
+                deployment_name=model_name
+            ),
             name=agent_name,
-            description="Microsoft Docs agent that fetches relevant documentation from Microsoft Docs.",
-            instructions=cache_service.load_prompt(agent_name),
-            plugins=[microsoft_docs_plugin]
+            description="Microsoft Docs agent that searches for relevant Microsoft documentation.",
+            instructions="""
+                You provide information from Microsoft Docs using the search tool.
+                - Rephrase queries max into up to 3 parallel searches for better results
+                - Cite sources with links and include all images from search results
+                - Format responses in markdown with related topic suggestions
+            """,
+            tools=[mcp_server],
+            allow_multiple_tool_calls=True,
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return microsoft_docs_agent
 
-    def get_blog_posts_agent(self) -> ChatCompletionAgent:
+    def get_blog_posts_agent(self) -> ChatAgent:
         """Create a Blog Posts agent with the necessary plugins."""
         agent_name = "blog_posts_agent"
         model_name = "gpt-4.1-mini"
 
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name
-        )
-
         # Create the agent
-        blog_posts_agent = ChatCompletionAgent(
-            kernel=kernel,
+        blog_posts_agent = ChatAgent(
+            chat_client=self.chat_client,
             name=agent_name,
             description="Blog Posts agent that searches for relevant blog posts.",
             instructions=cache_service.load_prompt(agent_name),
-            plugins=[blog_posts_plugin]
+            model_id=model_name,
+            tools=[tools.search_blog_posts],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return blog_posts_agent
 
-    def get_seismic_agent(self) -> ChatCompletionAgent:
+    def get_seismic_agent(self) -> ChatAgent:
         """Create a Seismic agent with the necessary plugins."""
         agent_name = "seismic_agent"
         model_name = "gpt-4.1-mini"
 
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name
-        )
-
         # Create the agent
-        seismic_agent = ChatCompletionAgent(
-            kernel=kernel,
+        seismic_agent = ChatAgent(
+            chat_client=self.chat_client,
             name=agent_name,
             description="Seismic agent that searches for relevant presentations and PowerPoints.",
             instructions=cache_service.load_prompt(agent_name),
-            plugins=[seismic_plugin]
+            model_id=model_name,
+            tools=[tools.search_seismic_presentations],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return seismic_agent
 
-    def get_bing_search_agent(self) -> ChatCompletionAgent:
+    def get_bing_search_agent(self) -> ChatAgent:
         """Create a Bing Search agent with the necessary plugins."""
         agent_name = "bing_search_agent"
         model_name = "gpt-4.1-mini"
 
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name
-        )
-
         # Create the agent
-        bing_search_agent = ChatCompletionAgent(
-            kernel=kernel,
+        bing_search_agent = ChatAgent(
             name=agent_name,
-            description="Bing Search agent that performs web searches to find relevant information.",
-            instructions=cache_service.load_prompt(agent_name),
-            plugins=[bing_plugin]
+            description="Bing Search agent that performs web searches using Bing.",
+            model_name=model_name,
+            chat_client=AzureAIAgentClient(
+                credential=DefaultAzureCredential(),
+                project_endpoint=self.project_endpoint,
+                model_deployment_name=model_name,
+                agent_id=os.getenv("BING_SEARCH_AGENT_ID")
+            ),
+            instructions="""
+                You are a helpful assistant that provides information by searching the web.
+                Use the provided tool to search for relevant information based on user queries.
+                Always provide the answers in English. Provide the citations for your sources.
+            """,
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return bing_search_agent
 
-    def get_github_docs_search_agent(self) -> ChatCompletionAgent:
+    def get_github_docs_search_agent(self) -> ChatAgent:
         """Create a GitHub Docs Search agent with the necessary plugins."""
         agent_name = "github_docs_search_agent"
-        model_name = "gpt-4.1-mini"
+        model_name = "gpt-5.2-chat"
 
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name
+        # Create the MCP tool
+        mcp_server = MCPStreamableHTTPTool(
+            name="GitHub Docs MCP Tool",
+            url="https://api.githubcopilot.com/mcp",
+            headers={
+                "Authorization": f"Bearer {os.getenv("GITHUB_TOKEN")}",
+                "Content-Type": "application/json",
+                "X-MCP-Tools": "github_support_docs_search"
+            },
+            approval_mode="never_require"
         )
 
         # Create the agent
-        github_docs_search_agent = ChatCompletionAgent(
-            kernel=kernel,
+        github_docs_search_agent = ChatAgent(
+            chat_client=AzureOpenAIChatClient(
+                endpoint=self.endpoint,
+                api_key=self.api_key,
+                deployment_name=model_name
+            ),
             name=agent_name,
-            description="GitHub Docs Search agent that performs searches to find relevant documentation.",
-            instructions=cache_service.load_prompt(agent_name),
-            plugins=[github_docs_plugin]
+            description="GitHub Docs Search agent that searches for relevant GitHub support documentation.",
+            instructions="""
+                You help with GitHub support documentation questions.
+                Never use prior knowledge.
+                Phrase user queries like "query: <user question>" to use the tool.
+                Always use the provided tool to search for relevant documentation based on user queries.
+                Provide accurate and concise information and also cite your sources with appropriate links.
+            """,
+            tools=[mcp_server],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return github_docs_search_agent
 
-    def get_aws_docs_agent(self) -> ChatCompletionAgent:
+    def get_aws_docs_agent(self) -> ChatAgent:
         """Create an AWS Docs agent with the necessary plugins."""
         agent_name = "aws_docs_agent"
-        model_name = "gpt-4.1-mini"
+        model_name = "gpt-5.2-chat"
 
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name
+        # Create the MCP tool
+        mcp_server = MCPStreamableHTTPTool(
+            name="AWS MCP Tool",
+            url="https://knowledge-mcp.global.api.aws",
+            load_prompts=False
         )
 
         # Create the agent
-        aws_docs_agent = ChatCompletionAgent(
-            kernel=kernel,
+        aws_docs_agent = ChatAgent(
+            chat_client=AzureOpenAIChatClient(
+                endpoint=self.endpoint,
+                api_key=self.api_key,
+                deployment_name=model_name
+            ),
             name=agent_name,
-            description="AWS Docs agent that fetches relevant documentation from AWS Docs.",
-            instructions=cache_service.load_prompt(agent_name),
-            plugins=[aws_docs_plugin]
+            description="AWS Docs agent that searches for relevant AWS documentation.",
+            instructions="""
+                You are a helpful assistant that provides information from AWS Docs.
+                Use the provided tool to search for relevant documentation based on user queries.
+                Always Provide accurate and concise information and also cite your sources with appropriate links.
+                Provide suggestions for related topics the user might find useful.
+            """,
+            tools=[mcp_server],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return aws_docs_agent
 
-    def get_architect_agent(self) -> ChatCompletionAgent:
+    def get_architect_agent(self) -> ChatAgent:
         """Create an architect agent with the necessary plugins."""
         agent_name = "architect_agent"
         model_name = "o3-mini"
 
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name
-        )
-
         # Create the agent
-        architect_agent = ChatCompletionAgent(
-            kernel=kernel,
+        architect_agent = ChatAgent(
+            chat_client=self.chat_client,
             name=agent_name,
+            description="Architect agent that provides architectural guidance and best practices.",
             instructions=cache_service.load_prompt(agent_name),
-            plugins=[
-                microsoft_docs_plugin,
-                bing_plugin
+            model_id=model_name,
+            tools=[
+                self.get_bing_search_agent().as_tool(
+                    description="Perform web searches using Bing")
+            ],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
             ]
         )
 
         return architect_agent
 
-    def get_summarizer_agent(self) -> ChatCompletionAgent:
-        """Create a summarizer agent with the necessary plugins."""
-        agent_name = "summarizer_agent"
-        model_name = "gpt-4.1-mini"
+    @agent_middleware  # Explicitly marks as agent middleware
+    async def simple_agent_middleware(self, context, next):
+        """Agent middleware with decorator - types are inferred."""
+        await cl.Message("Thinking...").send()
+        await next(context)
 
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name
-        )
-
-        # Create the agent
-        summarizer_agent = ChatCompletionAgent(
-            kernel=kernel,
-            name=agent_name,
-            description="Summarizer agent that condenses information into concise summaries.",
-            instructions=cache_service.load_prompt(agent_name)
-        )
-
-        return summarizer_agent
-
-    def get_explainer_agent(self) -> ChatCompletionAgent:
-        """Create an explainer agent with the necessary plugins."""
-        agent_name = "explainer_agent"
-        model_name = "gpt-4.1"
-
-        # Clone the base kernel and add the OpenAI service
-        kernel = self.create_kernel(
-            agent_name=agent_name,
-            model_name=model_name
-        )
-
-        # Create the agent
-        explainer_agent = ChatCompletionAgent(
-            kernel=kernel,
-            name=agent_name,
-            description="Explainer agent that provides detailed explanations of concepts.",
-            instructions=cache_service.load_prompt(agent_name)
-        )
-
-        return explainer_agent
-
-    @staticmethod
-    def execution_settings() -> OpenAIChatPromptExecutionSettings:
-        """Create request settings for the OpenAI service."""
-        return OpenAIChatPromptExecutionSettings(
-            function_choice_behavior=FunctionChoiceBehavior.Auto()
-        )
+    @function_middleware  # Explicitly marks as function middleware
+    async def simple_function_middleware(self, context, next):
+        """Function middleware with decorator - types are inferred."""
+        async with cl.Step(type="tool", name=f"{context.function.name}") as step:
+            step.input = context.arguments
+        # await cl.Message(f"Calling function: {context.function.name}").send()
+        await next(context)
 
 
 # Global instance
