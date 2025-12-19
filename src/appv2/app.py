@@ -8,7 +8,7 @@ import logging
 import socketio
 from engineio.payload import Payload
 from chainlit.types import ThreadDict
-from utils import check_env_vars
+from utils import check_env_vars, extract_image_elements
 
 # Check for required environment variables
 check_env_vars()
@@ -77,17 +77,24 @@ async def on_chat_start():
     # Clear the latest agent name
     latest_agent_name = None
 
+    # Store in user session 
     cl.user_session.set("chat_history", chat_history)
+    
+    # Initialize empty chat thread
     cl.user_session.set("chat_thread", None)
+    
+    # Store latest agent name
     cl.user_session.set("latest_agent_name", latest_agent_name)
 
 
 @cl.on_message
 async def on_message(user_message: cl.Message):
 
+    # Retrieve chat history and thread from user session
     chat_history: list[ChatMessage] = cl.user_session.get("chat_history")
     chat_thread: AgentThread = cl.user_session.get("chat_thread")
 
+    # Select the appropriate responder agent
     responder_agent: ChatAgent = chat_service.select_responder_agent(
         agents=agents,
         current_message=user_message,
@@ -99,6 +106,7 @@ async def on_message(user_message: cl.Message):
     # Set the latest agent in the user session
     cl.user_session.set("latest_agent_name", responder_agent.name)
 
+    # Append user message to chat history
     chat_history.append(ChatMessage(role="user", text=user_message.content))
     answer = cl.Message(content="")
 
@@ -110,11 +118,18 @@ async def on_message(user_message: cl.Message):
             messages=chat_history,
             chat_thread=chat_thread
     ):
+        # Append token to the answer content
         if token.text:
             await answer.stream_token(token.text)
 
+    # Update chat history and thread
     cl.user_session.set("chat_thread", chat_thread)
     chat_history.append(ChatMessage(role="assistant", text=answer.content))
+
+    # Check for image URLs in the response and display them
+    image_elements = extract_image_elements(answer.content)
+    if image_elements:
+        answer.elements = image_elements
 
     # Send the final message
     await answer.send()
@@ -123,11 +138,15 @@ async def on_message(user_message: cl.Message):
 @cl.on_chat_resume
 async def on_chat_resume(thread: ThreadDict):
 
+    # Populate commands in the user session
     await cl.context.emitter.set_commands(
         chat_service.get_commands()
     )
+
+    # Reconstruct chat history from the thread steps
     chat_history: list[ChatMessage] = []
 
+    # Rebuild chat history
     for step in thread["steps"]:
         if step["type"] == "assistant_message":
             chat_history.append(ChatMessage(
@@ -135,10 +154,14 @@ async def on_chat_resume(thread: ThreadDict):
         elif step["type"] == "user_message":
             chat_history.append(ChatMessage(
                 role="user", content=step["output"]))
+
+    # Store chat history in user session
     cl.user_session.set("chat_history", chat_history)
 
+    # Reconstruct the AgentThread from the thread ID
     chat_thread = AgentThread(service_thread_id=thread["id"])
 
+    # Store chat thread in user session
     cl.user_session.set("chat_thread", chat_thread)
 
 
@@ -146,16 +169,16 @@ async def on_chat_resume(thread: ThreadDict):
 async def set_starts() -> List[cl.Starter]:
     return [
         cl.Starter(
-            label="AI Assistant",
-            message="Design an AI assistant with frontend, backend, and database integration.",
+            label="GPT-5.2 Model Availability",
+            message="In which regions is the GPT-5 model available?",
         ),
         cl.Starter(
-            label="Data Analysis Bot",
-            message="Create a bot to analyze and visualize data trends.",
+            label="AI Landing Zone",
+            message="Provide an overview of AI Landing Zone best practices.",
         ),
         cl.Starter(
-            label="Weather Bot",
-            message="How is the weather today?",
+            label="Agent Framework",
+            message="Explain the key components of the Agent Framework.",
         ),
     ]
 
@@ -164,11 +187,15 @@ async def set_starts() -> List[cl.Starter]:
 async def on_action_button(action: cl.Action):
     """Handle action button clicks."""
 
+    # Retrieve chat history from user session
     chat_history: list[ChatMessage] = cl.user_session.get("chat_history")
+    
+    # Combine all user messages into a single prompt
     user_prompts = "\n".join(
         [msg.content for msg in chat_history if msg.role == "user"]
     )
-
+    
+    # Send a new message with the combined prompts and command
     await on_message(cl.Message(
         content=user_prompts,
         command=action.payload["command"]

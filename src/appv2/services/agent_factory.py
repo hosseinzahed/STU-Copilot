@@ -2,7 +2,7 @@ import os
 import chainlit as cl
 import logging
 from agent_framework import (ChatAgent, MCPStreamableHTTPTool,
-                             agent_middleware, function_middleware, chat_middleware)
+                             agent_middleware, function_middleware)
 from agent_framework.azure import AzureOpenAIChatClient, AzureAIAgentClient
 from azure.identity.aio import DefaultAzureCredential
 from .cache_service import cache_service
@@ -11,6 +11,7 @@ from .tool_factory import tools
 # Configure logging
 logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger(__name__)
+
 
 class AgentFactory:
     """Factory for creating chat completion agents."""
@@ -25,6 +26,7 @@ class AgentFactory:
             deployment_name="gpt-5.2-chat"
         )
 
+        # Initialize agents        
         self.agents = {
             "github_agent": self.get_github_agent(),
             "github_docs_search_agent": self.get_github_docs_search_agent(),
@@ -40,22 +42,6 @@ class AgentFactory:
     def get_agents(self) -> dict[str, ChatAgent]:
         """Get all agents."""
         return self.agents
-
-    def get_questioner_agent(self) -> ChatAgent:
-        """Create a questioner agent with the necessary plugins."""
-        agent_name = "questioner_agent"
-        model_name = "gpt-4.1-nano"
-
-        # Create the agent
-        questioner_agent = ChatAgent(
-            chat_client=self.chat_client,
-            description="Questioner agent that asks clarifying questions to gather more information.",
-            name=agent_name,
-            model_id=model_name,
-            instructions=cache_service.load_prompt(agent_name)
-        )
-
-        return questioner_agent
 
     def get_orchestrator_agent(self) -> ChatAgent:
         """Create an orchestrator agent with the necessary plugins."""
@@ -84,7 +70,11 @@ class AgentFactory:
                     description="Perform web searches using Bing"
                 )
             ],
-            allow_multiple_tool_calls=True
+            allow_multiple_tool_calls=True,
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return orchestrator_agent
@@ -101,7 +91,11 @@ class AgentFactory:
             description="GitHub agent that fetches relevant information from GitHub repositories.",
             instructions=cache_service.load_prompt(agent_name),
             model_id=model_name,
-            tools=[tools.search_github_repositories]
+            tools=[tools.search_github_repositories],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return github_agent
@@ -136,8 +130,7 @@ class AgentFactory:
             allow_multiple_tool_calls=True,
             middleware=[
                 self.simple_agent_middleware,
-                self.simple_function_middleware,
-                self.simple_chat_middleware
+                self.simple_function_middleware
             ]
         )
 
@@ -155,7 +148,11 @@ class AgentFactory:
             description="Blog Posts agent that searches for relevant blog posts.",
             instructions=cache_service.load_prompt(agent_name),
             model_id=model_name,
-            tools=[tools.search_blog_posts]
+            tools=[tools.search_blog_posts],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return blog_posts_agent
@@ -172,7 +169,11 @@ class AgentFactory:
             description="Seismic agent that searches for relevant presentations and PowerPoints.",
             instructions=cache_service.load_prompt(agent_name),
             model_id=model_name,
-            tools=[tools.search_seismic_presentations]
+            tools=[tools.search_seismic_presentations],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return seismic_agent
@@ -198,6 +199,10 @@ class AgentFactory:
                 Use the provided tool to search for relevant information based on user queries.
                 Always provide the answers in English. Provide the citations for your sources.
             """,
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return bing_search_agent
@@ -207,6 +212,7 @@ class AgentFactory:
         agent_name = "github_docs_search_agent"
         model_name = "gpt-5.2-chat"
 
+        # Create the MCP tool
         mcp_server = MCPStreamableHTTPTool(
             name="GitHub Docs MCP Tool",
             url="https://api.githubcopilot.com/mcp",
@@ -215,9 +221,10 @@ class AgentFactory:
                 "Content-Type": "application/json",
                 "X-MCP-Tools": "github_support_docs_search"
             },
-            approval_mode="never_require",
+            approval_mode="never_require"
         )
 
+        # Create the agent
         github_docs_search_agent = ChatAgent(
             chat_client=AzureOpenAIChatClient(
                 endpoint=self.endpoint,
@@ -233,7 +240,11 @@ class AgentFactory:
                 Always use the provided tool to search for relevant documentation based on user queries.
                 Provide accurate and concise information and also cite your sources with appropriate links.
             """,
-            tools=[mcp_server]
+            tools=[mcp_server],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return github_docs_search_agent
@@ -243,12 +254,14 @@ class AgentFactory:
         agent_name = "aws_docs_agent"
         model_name = "gpt-5.2-chat"
 
+        # Create the MCP tool
         mcp_server = MCPStreamableHTTPTool(
             name="AWS MCP Tool",
             url="https://knowledge-mcp.global.api.aws",
             load_prompts=False
         )
 
+        # Create the agent
         aws_docs_agent = ChatAgent(
             chat_client=AzureOpenAIChatClient(
                 endpoint=self.endpoint,
@@ -263,7 +276,11 @@ class AgentFactory:
                 Always Provide accurate and concise information and also cite your sources with appropriate links.
                 Provide suggestions for related topics the user might find useful.
             """,
-            tools=[mcp_server]
+            tools=[mcp_server],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
+            ]
         )
 
         return aws_docs_agent
@@ -281,7 +298,12 @@ class AgentFactory:
             instructions=cache_service.load_prompt(agent_name),
             model_id=model_name,
             tools=[
-                tools.search_by_bing
+                self.get_bing_search_agent().as_tool(
+                    description="Perform web searches using Bing")
+            ],
+            middleware=[
+                self.simple_agent_middleware,
+                self.simple_function_middleware
             ]
         )
 
@@ -290,26 +312,16 @@ class AgentFactory:
     @agent_middleware  # Explicitly marks as agent middleware
     async def simple_agent_middleware(self, context, next):
         """Agent middleware with decorator - types are inferred."""
-        _global_task_list = cl.TaskList()
-        _global_task_list.status = "Thinking..."
+        await cl.Message("Thinking...").send()
         await next(context)
-        print("After agent execution")
 
     @function_middleware  # Explicitly marks as function middleware
     async def simple_function_middleware(self, context, next):
         """Function middleware with decorator - types are inferred."""
-        print(f"Calling function: {context.function.name}")        
         async with cl.Step(type="tool", name=f"{context.function.name}") as step:
-            step.input = context.arguments            
-        await next(context)        
-        print("Function call completed")
-
-    @chat_middleware  # Explicitly marks as chat middleware
-    async def simple_chat_middleware(self, context, next):
-        """Chat middleware with decorator - types are inferred."""
-        print(f"Processing {len(context.messages)} chat messages")
+            step.input = context.arguments
+        # await cl.Message(f"Calling function: {context.function.name}").send()
         await next(context)
-        print("Chat processing completed")
 
 
 # Global instance
