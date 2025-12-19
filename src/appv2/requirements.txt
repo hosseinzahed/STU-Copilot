@@ -1,9 +1,0 @@
-dotenv
-chainlit
-azure-cosmos
-azure-storage-blob
-azure-functions
-azure-identity
-asyncpg
-psycopg2-binary
-agent-framework

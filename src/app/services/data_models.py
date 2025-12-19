@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Optional, Dict
+from typing import Optional
 import chainlit as cl
 
 
