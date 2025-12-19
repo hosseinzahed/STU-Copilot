@@ -1,11 +1,9 @@
 dotenv
 chainlit
-openai
 azure-cosmos
 azure-storage-blob
-azure-ai-projects
+azure-functions
 azure-identity
 asyncpg
 psycopg2-binary
 agent-framework
-mcp[cli]
