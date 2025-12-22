@@ -6,3 +6,4 @@ backoff
 openai
 feedparser
 psycopg2-binary
+markitdown

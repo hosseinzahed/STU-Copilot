@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 from datetime import datetime
-
+from dataclasses import dataclass
 
 class BlogItem:
     """Data class to hold blog post information"""
@@ -212,3 +212,10 @@ class SeismicContent:
             tags=data.get("tags"),
             embedding=data.get("embedding")
         )
+
+@dataclass
+class ComplianceItem:
+    """Data class to hold compliance item information"""
+    category: str
+    title: str
+    url: str

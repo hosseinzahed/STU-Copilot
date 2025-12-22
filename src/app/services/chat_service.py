@@ -94,8 +94,20 @@ class ChatService:
                 "command": "AWS Documentation",
                 "action_name": "action_button",
                 "agent_object": agents.get("aws_docs_agent")
-            }            
-        }    
+            },
+            "compliance_agent": {
+                "title": "Compliance Checker",
+                "description": "Check content for compliance issues",
+                "icon": "shield-check",
+                "is_button": True,
+                "is_persistent": True,
+                "is_command": True,
+                "is_action": True,
+                "command": "Compliance Checker",
+                "action_name": "action_button",
+                "agent_object": agents.get("compliance_agent")
+            }
+        }
 
     def get_commands(self) -> list[CommandDict]:
         """Return the list of available commands."""
@@ -109,9 +121,9 @@ class ChatService:
                     "description": agent["description"],
                     "icon": agent["icon"],
                     "button": agent["is_button"],
-                    "persistent": agent["is_persistent"]                    
+                    "persistent": agent["is_persistent"]
                 })
-        return commands    
+        return commands
 
     def select_responder_agent(self,
                                agents: dict[str, ChatAgent],
