@@ -1,4 +1,5 @@
 import os
+import re
 import aiohttp
 from typing import Dict, Any
 from agent_framework import (
@@ -82,7 +83,7 @@ async def _retrieve_knowledge(query: str) -> str:
         str: The retrieved information from the knowledge base.
     """
     # Prepare the query
-    query += "\n Format responses in Markdown with proper headers no bigger than `###`. Use an official, concise tone."
+    query += "\n**Format responses in Markdown with proper headers no bigger than `###`. Use an official tone.**"
     
     print("Knowledge Base Query:", query)
     
@@ -135,7 +136,8 @@ def _process_kb_response(response_json: str) -> str:
     """
     # Extract the main response text
     response_text = response_json["response"][0]["content"][0]["text"]
-    # print("Response Text:", response_text)
+    refined_response_text = re.sub(r'\[ref_id:(\d+)\]', r' *[ref:\1]* ', response_text)
+    # print("Response Text:", refined_response_text)
 
     # Extract unique reference titles
     references_list = "\n".join(
@@ -145,7 +147,7 @@ def _process_kb_response(response_json: str) -> str:
     # print("References List:", references_list)
 
     # Combine response text with references
-    processed_answer = f"{response_text}\n\n### References:\n{references_list}"
+    processed_answer = f"{refined_response_text}\n\n### References:\n{references_list}"
 
     return processed_answer
 
