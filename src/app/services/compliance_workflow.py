@@ -1,6 +1,5 @@
 import os
 import aiohttp
-import requests
 from typing import Dict, Any
 from agent_framework import (
     ChatAgent,
@@ -13,7 +12,6 @@ from agent_framework import (
 )
 from agent_framework.azure import AzureOpenAIChatClient
 from urllib.parse import quote
-
 
 
 # Load environment variables for Foundry
@@ -83,6 +81,12 @@ async def _retrieve_knowledge(query: str) -> str:
     Returns:
         str: The retrieved information from the knowledge base.
     """
+    # Prepare the query
+    query += "\n Format responses in Markdown with proper headers no bigger than `###`. Use an official, concise tone."
+    
+    print("Knowledge Base Query:", query)
+    
+    
     # Prepare the url for knowledge base retrieval
     kb_retrieval_url = f"{ai_search_endpoint}/knowledgebases/{ai_search_knowledge_base_name}/retrieve?api-version=2025-11-01-preview"
 
@@ -107,12 +111,12 @@ async def _retrieve_knowledge(query: str) -> str:
         ],
         "outputMode": "answerSynthesis",
         "includeActivity": False,
-        "maxRuntimeInSeconds": 120,        
-        #"maxOutputSize": 6000
+        "maxRuntimeInSeconds": 120,
+        # "maxOutputSize": 6000
     }
 
     # Make the POST request to retrieve information
-    timeout = aiohttp.ClientTimeout(total=120)  # 120 seconds (2 minutes)    
+    timeout = aiohttp.ClientTimeout(total=120)  # 120 seconds (2 minutes)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(url=kb_retrieval_url,
                                 headers=headers,
@@ -131,19 +135,20 @@ def _process_kb_response(response_json: str) -> str:
     """
     # Extract the main response text
     response_text = response_json["response"][0]["content"][0]["text"]
-    print("Response Text:", response_text)
-    
-    # Extract unique reference titles    
+    # print("Response Text:", response_text)
+
+    # Extract unique reference titles
     references_list = "\n".join(
-        f"{ref['id']}. [{ref['title']}]({quote(ref['title'])}) - (Page #{_extract_page(ref["docKey"])})" 
+        f"{ref['id']}. [{ref['title']}]({quote(ref['title'])}) - (Page #{_extract_page(ref["docKey"])})"
         for ref in sorted(response_json.get("references", []), key=lambda x: int(x['id']))
-    )    
-    print("References List:", references_list)
-    
+    )
+    # print("References List:", references_list)
+
     # Combine response text with references
     processed_answer = f"{response_text}\n\n### References:\n{references_list}"
 
     return processed_answer
+
 
 def _extract_page(doc_key: str) -> str:
     # Extract the page number or relevant information from the docKey
