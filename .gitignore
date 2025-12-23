@@ -208,3 +208,5 @@ AzuriteConfig
 .temp
 
 # VS Code
+
+src/app/.files/*

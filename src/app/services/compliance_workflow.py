@@ -1,12 +1,10 @@
 import os
 import re
-import uuid
 import aiohttp
-from typing import Dict, Any
+from typing import Any, Never
 from agent_framework import (
     ChatAgent,
     ChatMessage,
-    AgentThread,
     Workflow,
     WorkflowBuilder,
     WorkflowContext,
@@ -35,6 +33,8 @@ ai_search_api_version = os.getenv(
 ai_search_knowledge_base_name = os.getenv(
     "KNOWLEDGE_BASE_NAME", "stu-copilot-kb")
 
+# Load environment variable for storage account
+storage_account_name = os.getenv("APP_AZURE_STORAGE_ACCOUNT")
 
 # Initialize the Azure OpenAI Chat Client
 chat_client = AzureOpenAIChatClient(
@@ -54,21 +54,36 @@ retrieve_kb_task = cl.Task(
     status=cl.TaskStatus.READY,
     forId="retrieve_kb_task"
 )
-process_search_results_task = cl.Task(
-    title="Processing search results",
-    status=cl.TaskStatus.READY,
-    forId="process_search_results_task"
-)
 ms_docs_search_task = cl.Task(
     title="Searching Microsoft Docs",
     status=cl.TaskStatus.READY,
     forId="ms_docs_search_task"
 )
+aggregate_results_task = cl.Task(
+    title="Aggregating results",
+    status=cl.TaskStatus.READY,
+    forId="aggregate_results_task"
+)
+
 
 @dataclass
 class PreprocessOutput:
     """Data class to hold the output of the preprocess executor."""
     messages: list[ChatMessage]
+    task_list: cl.TaskList
+
+
+@dataclass
+class KnowledgeBaseOutput:
+    """Data class to hold the output of the knowledge base retrieval executor."""
+    answer: str
+    task_list: cl.TaskList
+
+
+@dataclass
+class MSDocsOutput:
+    """Data class to hold the output of the Microsoft Docs search executor."""
+    answer: str
     task_list: cl.TaskList
 
 
@@ -82,18 +97,20 @@ def get_compliance_workflow() -> Workflow:
         WorkflowBuilder(
             name="Compliance Workflow",
             description="A workflow for handling compliance-related tasks.",
-            max_iterations=1
+            # max_iterations=1
         )
-        .set_start_executor(preprocess_executor)
-        .add_edge(preprocess_executor, knowledge_base_retrieval_executor)
+        .set_start_executor(preprocess_query)
+        .add_fan_out_edges(preprocess_query, [retrieve_knowledge_base, search_ms_docs])
+        .add_fan_in_edges([retrieve_knowledge_base, search_ms_docs], aggregate_results)
         .build()
     )
 
     return compliance_workflow
 
 
-@executor(id="preprocess_executor")
-async def preprocess_executor(messages: list[ChatMessage], ctx: WorkflowContext[PreprocessOutput]) -> None:
+@executor(id="preprocess_query")
+async def preprocess_query(messages: list[ChatMessage],
+                           ctx: WorkflowContext[PreprocessOutput]) -> None:
     """Executor to preprocess the input messages.
     Args:
         messages (list[ChatMessage]): The list of chat messages.
@@ -104,15 +121,15 @@ async def preprocess_executor(messages: list[ChatMessage], ctx: WorkflowContext[
 
     # Create a new task list
     task_list = cl.TaskList(
-        thread_id=str(uuid.uuid4()),
         name="compliance_workflow_tasks",
         title="Compliance Workflow Tasks",
-        status="⌛ Running…",        
+        status="⌛ Running…",
         tasks=[
             analyze_query_task,
             retrieve_kb_task,
-            process_search_results_task
-        ]
+            ms_docs_search_task,
+            aggregate_results_task
+        ]               
     )
 
     # Prepare the output
@@ -121,6 +138,7 @@ async def preprocess_executor(messages: list[ChatMessage], ctx: WorkflowContext[
         task_list=task_list
     )
 
+    # Update the analyze query task status
     analyze_query_task.status = cl.TaskStatus.DONE
     await task_list.update()
 
@@ -128,8 +146,9 @@ async def preprocess_executor(messages: list[ChatMessage], ctx: WorkflowContext[
     return await ctx.send_message(output)
 
 
-@executor(id="knowledge_base_retrieval_executor")
-async def knowledge_base_retrieval_executor(input: PreprocessOutput, ctx: WorkflowContext[str]) -> str:
+@executor(id="retrieve_knowledge_base")
+async def retrieve_knowledge_base(input: PreprocessOutput,
+                                  ctx: WorkflowContext[KnowledgeBaseOutput, Never]):
     """Executor to retrieve information from the compliance knowledge base.
     Args:
         query (str): The query string to search in the knowledge base.
@@ -138,31 +157,120 @@ async def knowledge_base_retrieval_executor(input: PreprocessOutput, ctx: Workfl
         str: The retrieved information from the knowledge base.
     """
 
-    # Retrieve from the knowledge base
+    # Update the task status
     retrieve_kb_task.status = cl.TaskStatus.RUNNING
     await input.task_list.update()
+
+    # Call the helper method to retrieve knowledge
     json_response = await _retrieve_knowledge(input.messages[-1].text)
+
+    # Process the response
+    processed_md_response = _process_kb_response(json_response)
+
+    # Prepare the output
+    output = KnowledgeBaseOutput(
+        answer=processed_md_response,
+        task_list=input.task_list
+    )
+
+    # Update the task status
     retrieve_kb_task.status = cl.TaskStatus.DONE
     await input.task_list.update()
 
-    # Process the response
-    process_search_results_task.status = cl.TaskStatus.RUNNING
+    # Return the output to the next executor
+    return await ctx.send_message(output)
+
+
+@executor(id="search_ms_docs")
+async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOutput, Never]):
+    """Executor to search Microsoft Docs for additional information.
+    Args:
+        query (str): The query string to search in Microsoft Docs.
+    Returns:
+        str: The retrieved information from Microsoft Docs.
+    """
+    # Update the task status
+    ms_docs_search_task.status = cl.TaskStatus.RUNNING
     await input.task_list.update()
-    processed_md_response = _process_kb_response(json_response)
-    process_search_results_task.status = cl.TaskStatus.DONE
+
+    # Create the MCP tool
+    mcp_server = MCPStreamableHTTPTool(
+        name="Microsoft Docs MCP Tool",
+        url="https://learn.microsoft.com/api/mcp"
+    )
+
+    # Create the agent
+    microsoft_docs_agent = ChatAgent(
+        chat_client=AzureOpenAIChatClient(
+            endpoint=foundry_endpoint,
+            api_key=foundry_api_key,
+            deployment_name="gpt-5.2-chat"
+        ),
+        name="microsoft_docs_agent",
+        description="Microsoft Docs agent that searches for relevant Microsoft documentation.",
+        instructions="""
+                You provide information from Microsoft Docs using the search tool.
+                - Rephrase queries max into up to 3 parallel searches for better results
+                - Cite sources with links and include all images from search results
+                - Format responses in markdown with related topic suggestions
+            """,
+        tools=[mcp_server],
+        allow_multiple_tool_calls=True
+    )
+
+    # Run the agent with the query
+    response = await microsoft_docs_agent.run(input.messages[-1].text)
+
+    # Prepare the output
+    output = MSDocsOutput(
+        answer=response.text,
+        task_list=input.task_list
+    )
+
+    # Update the task status
+    ms_docs_search_task.status = cl.TaskStatus.DONE
     await input.task_list.update()
+
+    # Return a placeholder response
+    return await ctx.send_message(output)
+
+
+@executor(id="aggregate_results")
+async def aggregate_results(results: list[Any],
+                            ctx: WorkflowContext[Never, str]):
+    """Executor to aggregate results from knowledge base and Microsoft Docs search.
+    Args:
+        kb_output (KnowledgeBaseOutput): The output from the knowledge base retrieval executor.
+        ms_docs_output (MSDocsOutput): The output from the Microsoft Docs search executor.
+    Returns:
+        str: The aggregated response.    
+    """
+    # Initialize outputs
+    kb_output = None
+    ms_docs_output = None
+
+    # Extract outputs from results
+    for result in results:
+        if isinstance(result, KnowledgeBaseOutput):
+            kb_output = result
+        elif isinstance(result, MSDocsOutput):
+            ms_docs_output = result
+
+    # Update the task status
+    aggregate_results_task.status = cl.TaskStatus.RUNNING
+    await kb_output.task_list.update()
+
+    # Aggregate the results
+    final_output = f"> ## 📃 Knowledge Base Results: \n{kb_output.answer}\n --- \n> ## 📚 Microsoft Docs Results: \n{ms_docs_output.answer}"
 
     # Update the task list status to completed
-    input.task_list.status = "✅ Completed"
-    await input.task_list.update()
+    aggregate_results_task.status = cl.TaskStatus.DONE
+    kb_output.task_list.status = "✅ Completed"
+    await kb_output.task_list.update()
+    await kb_output.task_list.remove()
 
-    # Remove the task list after completion
-    await input.task_list.remove()
-
-    # Return the processed Markdown response
-    return await ctx.yield_output(processed_md_response)
-
-
+    # Return the final aggregated output
+    return await ctx.yield_output(final_output)
 
 
 async def _retrieve_knowledge(query: str) -> str:
@@ -248,99 +356,3 @@ def _extract_page(doc_key: str) -> str:
     if "_pages_" in doc_key:
         return doc_key.split("_pages_")[-1]
     return "Undefined"
-
-# def _get_intents_extractor_agent(self) -> ChatAgent:
-
-
-# agent = ChatAgent(
-#     chat_client=self.chat_client,
-#     description="Compliance Intent Extraction Agent",
-#     instructions="""
-#         Tell me a joke about compliance and regulations.
-#     """,
-#     model_id="gpt-4.1-mini"
-# )
-# return agent
-
-
-# async def retrieve_from_knowledge_base(self, query: str, knowledge_sources: list = None) -> Dict[str, Any]:
-# ai_search_endpoint = os.getenv("AI_SEARCH_ENDPOINT")
-# ai_search_key = os.getenv("AI_SEARCH_KEY")
-# knowledge_base_name = "stu-copilot-kb"
-
-# # AI Search Context Provider
-# # Create the MCP tool
-# mcp_server = MCPStreamableHTTPTool(
-#     name="AI Search MCP Tool",
-#     description="Tool to retrieve information from the compliance knowledge base using AI Search.",
-#     url=f"{ai_search_endpoint}/knowledgebases/{knowledge_base_name}/mcp?api-version=2025-11-01-preview",
-#     headers={
-#         "api-key": f"{ai_search_key}",
-#         "Content-Type": "application/json"
-#     },
-#     approval_mode="never_require",
-#     allowed_tools=["knowledge_base_retrieve"],
-#     load_prompts=False,
-#     load_tools=True,
-#     request_timeout=60,
-#     timeout=60
-# )
-
-# # Connect and load tools
-# await mcp_server.connect()
-# await mcp_server.load_tools()
-
-# # Call the tool with the query
-# results = await mcp_server.call_tool(
-#     "knowledge_base_retrieve",
-#     request={
-#         "knowledgeAgentIntents": [
-#             query
-#         ]
-#     }
-# )
-
-# # Close the MCP server connection
-# await mcp_server.close()
-
-# return results
-
-
-# # Global instance
-# compliance_service = ComplianceService()
-
-#     from agent_framework import ChatAgent
-# from agent_framework.azure import AzureAIAgentClient, AzureAISearchContextProvider
-# from azure.identity.aio import DefaultAzureCredential
-# search_provider = AzureAISearchContextProvider(
-#    endpoint="https://myservice.search.windows.net",
-#    index_name="my-index",
-#    api_key="YOUR_SEARCH_KEY", # or use DefaultAzureCredential
-#    mode="semantic",
-#    top_k=3
-# )
-# async with AzureAIAgentClient(
-#    credential=DefaultAzureCredential(),
-#    project_endpoint="YOUR_PROJECT_ENDPOINT",
-#    model_deployment_name="gpt-4o"
-# ) as client:
-#    async with ChatAgent(chat_client=client, context_providers=search_provider) as agent:
-#        response = await agent.run("What information is in the knowledge base?")
-#        print(response.text)
-
-# search_provider = AzureAISearchContextProvider(
-#    endpoint="https://myservice.search.windows.net",
-#    index_name="my-index",
-#    api_key="YOUR_SEARCH_KEY",
-#    mode="agentic",
-#    knowledge_base_name="my-knowledge-base",
-#    azure_openai_resource_url="https://myopenai.openai.azure.com",
-#    top_k=5
-# )
-# async with ChatAgent(
-#    chat_client=client,
-#    model=model_deployment,
-#    context_providers=search_provider
-# ) as agent:
-#    response = await agent.run("Analyze and compare topics across documents")
-#    print(response.text)
