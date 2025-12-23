@@ -128,11 +128,11 @@ class ChatService:
     def select_responder_agent(self,
                                agents: dict[str, ChatAgent],
                                current_message: cl.Message,
-                               latest_agent_name: str) -> ChatAgent:
+                               last_used_agent_name: str) -> ChatAgent:
         """Select the appropriate agent based on the current message and chat history."""
 
         print(f"Current message command: {current_message.command}")
-        print(f"Latest agent in use: {latest_agent_name}")
+        print(f"Latest agent in use: {last_used_agent_name}")
 
         # If the current message is a command, use the corresponding agent
         if current_message.command:
@@ -145,10 +145,10 @@ class ChatService:
                     return selected_agent
 
         # If the current message is not a command, determine the agent based on the chat history
-        elif latest_agent_name is None:
+        elif last_used_agent_name is None:
             return agents.get("orchestrator_agent")
         else:
-            return agents.get(latest_agent_name)
+            return agents.get(last_used_agent_name)
 
 
 # Global instance

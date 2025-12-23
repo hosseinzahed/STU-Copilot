@@ -14,7 +14,7 @@ from agent_framework import (
 from agent_framework.azure import AzureOpenAIChatClient
 from urllib.parse import quote
 import chainlit as cl
-from dataclasses import dataclass
+from .data_models import PreprocessOutput, KnowledgeBaseOutput, MSDocsOutput
 
 
 # Load environment variables for Foundry
@@ -66,27 +66,6 @@ aggregate_results_task = cl.Task(
 )
 
 
-@dataclass
-class PreprocessOutput:
-    """Data class to hold the output of the preprocess executor."""
-    messages: list[ChatMessage]
-    task_list: cl.TaskList
-
-
-@dataclass
-class KnowledgeBaseOutput:
-    """Data class to hold the output of the knowledge base retrieval executor."""
-    answer: str
-    task_list: cl.TaskList
-
-
-@dataclass
-class MSDocsOutput:
-    """Data class to hold the output of the Microsoft Docs search executor."""
-    answer: str
-    task_list: cl.TaskList
-
-
 def get_compliance_workflow() -> Workflow:
     """Creates and returns a compliance workflow.
     Returns:
@@ -101,7 +80,7 @@ def get_compliance_workflow() -> Workflow:
         )
         .set_start_executor(preprocess_query)
         .add_fan_out_edges(preprocess_query, [retrieve_knowledge_base, search_ms_docs])
-        .add_fan_in_edges([retrieve_knowledge_base, search_ms_docs], aggregate_results)
+        .add_fan_in_edges([retrieve_knowledge_base, search_ms_docs], aggregate_results)        
         .build()
     )
 
@@ -110,7 +89,7 @@ def get_compliance_workflow() -> Workflow:
 
 @executor(id="preprocess_query")
 async def preprocess_query(messages: list[ChatMessage],
-                           ctx: WorkflowContext[PreprocessOutput]) -> None:
+                           ctx: WorkflowContext[PreprocessOutput, Never]) -> None:
     """Executor to preprocess the input messages.
     Args:
         messages (list[ChatMessage]): The list of chat messages.
@@ -129,8 +108,9 @@ async def preprocess_query(messages: list[ChatMessage],
             retrieve_kb_task,
             ms_docs_search_task,
             aggregate_results_task
-        ]               
+        ]
     )
+    print(task_list.to_dict())
 
     # Prepare the output
     output = PreprocessOutput(
@@ -143,12 +123,12 @@ async def preprocess_query(messages: list[ChatMessage],
     await task_list.update()
 
     # Send the output to the next executor
-    return await ctx.send_message(output)
+    await ctx.send_message(output)
 
 
 @executor(id="retrieve_knowledge_base")
 async def retrieve_knowledge_base(input: PreprocessOutput,
-                                  ctx: WorkflowContext[KnowledgeBaseOutput, Never]):
+                                  ctx: WorkflowContext[KnowledgeBaseOutput, Never]) -> None:
     """Executor to retrieve information from the compliance knowledge base.
     Args:
         query (str): The query string to search in the knowledge base.
@@ -178,11 +158,11 @@ async def retrieve_knowledge_base(input: PreprocessOutput,
     await input.task_list.update()
 
     # Return the output to the next executor
-    return await ctx.send_message(output)
+    await ctx.send_message(output)
 
 
 @executor(id="search_ms_docs")
-async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOutput, Never]):
+async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOutput, Never]) -> None:
     """Executor to search Microsoft Docs for additional information.
     Args:
         query (str): The query string to search in Microsoft Docs.
@@ -232,12 +212,12 @@ async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOut
     await input.task_list.update()
 
     # Return a placeholder response
-    return await ctx.send_message(output)
+    await ctx.send_message(output)
 
 
 @executor(id="aggregate_results")
 async def aggregate_results(results: list[Any],
-                            ctx: WorkflowContext[Never, str]):
+                            ctx: WorkflowContext[Never, str]) -> None:
     """Executor to aggregate results from knowledge base and Microsoft Docs search.
     Args:
         kb_output (KnowledgeBaseOutput): The output from the knowledge base retrieval executor.
@@ -268,9 +248,9 @@ async def aggregate_results(results: list[Any],
     kb_output.task_list.status = "✅ Completed"
     await kb_output.task_list.update()
     await kb_output.task_list.remove()
-
+    
     # Return the final aggregated output
-    return await ctx.yield_output(final_output)
+    await ctx.yield_output(final_output)
 
 
 async def _retrieve_knowledge(query: str) -> str:
@@ -352,7 +332,7 @@ def _process_kb_response(response_json: str) -> str:
 
 def _extract_page(doc_key: str) -> str:
     # Extract the page number or relevant information from the docKey
-    # Assuming the docKey format contains the page number after a specific delimiter, e.g., "page_"
+    # Assuming the docKey format contains the page number after a specific delimiter, e.g., "_pages_"
     if "_pages_" in doc_key:
         return doc_key.split("_pages_")[-1]
     return "Undefined"

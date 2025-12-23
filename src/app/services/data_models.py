@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 import chainlit as cl
+from dataclasses import dataclass
 
 
 class ChatMessage:
@@ -80,4 +81,22 @@ class ChatThread:
         )
 
 
+@dataclass
+class PreprocessOutput:
+    """Data class to hold the output of the preprocess executor."""
+    messages: list[ChatMessage]
+    task_list: cl.TaskList
 
+
+@dataclass
+class KnowledgeBaseOutput:
+    """Data class to hold the output of the knowledge base retrieval executor."""
+    answer: str
+    task_list: cl.TaskList
+
+
+@dataclass
+class MSDocsOutput:
+    """Data class to hold the output of the Microsoft Docs search executor."""
+    answer: str
+    task_list: cl.TaskList
