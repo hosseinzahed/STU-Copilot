@@ -1,10 +1,12 @@
 import os
 import re
+import uuid
 import aiohttp
 from typing import Dict, Any
 from agent_framework import (
     ChatAgent,
     ChatMessage,
+    AgentThread,
     Workflow,
     WorkflowBuilder,
     WorkflowContext,
@@ -13,6 +15,8 @@ from agent_framework import (
 )
 from agent_framework.azure import AzureOpenAIChatClient
 from urllib.parse import quote
+import chainlit as cl
+from dataclasses import dataclass
 
 
 # Load environment variables for Foundry
@@ -26,8 +30,11 @@ foundry_api_version = os.getenv(
 # Load environment variables for AI Search
 ai_search_endpoint = os.getenv("AI_SEARCH_ENDPOINT")
 ai_search_api_key = os.getenv("AI_SEARCH_KEY")
+ai_search_api_version = os.getenv(
+    "AI_SEARCH_API_VERSION", "2025-11-01-preview")
 ai_search_knowledge_base_name = os.getenv(
     "KNOWLEDGE_BASE_NAME", "stu-copilot-kb")
+
 
 # Initialize the Azure OpenAI Chat Client
 chat_client = AzureOpenAIChatClient(
@@ -35,6 +42,34 @@ chat_client = AzureOpenAIChatClient(
     api_key=foundry_api_key,
     deployment_name="gpt-5.2-chat"
 )
+
+# Define tasks
+analyze_query_task = cl.Task(
+    title="Analyzing the query",
+    status=cl.TaskStatus.READY,
+    forId="analyze_query_task"
+)
+retrieve_kb_task = cl.Task(
+    title="Searching the knowledge base",
+    status=cl.TaskStatus.READY,
+    forId="retrieve_kb_task"
+)
+process_search_results_task = cl.Task(
+    title="Processing search results",
+    status=cl.TaskStatus.READY,
+    forId="process_search_results_task"
+)
+ms_docs_search_task = cl.Task(
+    title="Searching Microsoft Docs",
+    status=cl.TaskStatus.READY,
+    forId="ms_docs_search_task"
+)
+
+@dataclass
+class PreprocessOutput:
+    """Data class to hold the output of the preprocess executor."""
+    messages: list[ChatMessage]
+    task_list: cl.TaskList
 
 
 def get_compliance_workflow() -> Workflow:
@@ -49,15 +84,52 @@ def get_compliance_workflow() -> Workflow:
             description="A workflow for handling compliance-related tasks.",
             max_iterations=1
         )
-        .set_start_executor(knowledge_base_retrieval_executor)
+        .set_start_executor(preprocess_executor)
+        .add_edge(preprocess_executor, knowledge_base_retrieval_executor)
         .build()
     )
 
     return compliance_workflow
 
 
+@executor(id="preprocess_executor")
+async def preprocess_executor(messages: list[ChatMessage], ctx: WorkflowContext[PreprocessOutput]) -> None:
+    """Executor to preprocess the input messages.
+    Args:
+        messages (list[ChatMessage]): The list of chat messages.
+        chat_thread (AgentThread): The current chat thread.
+    Returns:
+        PreprocessOutput: The preprocessed output containing messages, chat thread, and task list.
+    """
+
+    # Create a new task list
+    task_list = cl.TaskList(
+        thread_id=str(uuid.uuid4()),
+        name="compliance_workflow_tasks",
+        title="Compliance Workflow Tasks",
+        status="⌛ Running…",        
+        tasks=[
+            analyze_query_task,
+            retrieve_kb_task,
+            process_search_results_task
+        ]
+    )
+
+    # Prepare the output
+    output = PreprocessOutput(
+        messages=messages,
+        task_list=task_list
+    )
+
+    analyze_query_task.status = cl.TaskStatus.DONE
+    await task_list.update()
+
+    # Send the output to the next executor
+    return await ctx.send_message(output)
+
+
 @executor(id="knowledge_base_retrieval_executor")
-async def knowledge_base_retrieval_executor(messages: list[ChatMessage], ctx: WorkflowContext[str]) -> Dict[str, Any]:
+async def knowledge_base_retrieval_executor(input: PreprocessOutput, ctx: WorkflowContext[str]) -> str:
     """Executor to retrieve information from the compliance knowledge base.
     Args:
         query (str): The query string to search in the knowledge base.
@@ -65,14 +137,32 @@ async def knowledge_base_retrieval_executor(messages: list[ChatMessage], ctx: Wo
     Returns:
         str: The retrieved information from the knowledge base.
     """
+
     # Retrieve from the knowledge base
-    json_response = await _retrieve_knowledge(messages[-1].text)
+    retrieve_kb_task.status = cl.TaskStatus.RUNNING
+    await input.task_list.update()
+    json_response = await _retrieve_knowledge(input.messages[-1].text)
+    retrieve_kb_task.status = cl.TaskStatus.DONE
+    await input.task_list.update()
 
     # Process the response
+    process_search_results_task.status = cl.TaskStatus.RUNNING
+    await input.task_list.update()
     processed_md_response = _process_kb_response(json_response)
+    process_search_results_task.status = cl.TaskStatus.DONE
+    await input.task_list.update()
+
+    # Update the task list status to completed
+    input.task_list.status = "✅ Completed"
+    await input.task_list.update()
+
+    # Remove the task list after completion
+    await input.task_list.remove()
 
     # Return the processed Markdown response
     return await ctx.yield_output(processed_md_response)
+
+
 
 
 async def _retrieve_knowledge(query: str) -> str:
@@ -84,12 +174,11 @@ async def _retrieve_knowledge(query: str) -> str:
     """
     # Prepare the query
     query += "\n**Format responses in Markdown with proper headers no bigger than `###`. Use an official tone.**"
-    
-    print("Knowledge Base Query:", query)
-    
-    
+
+    # print("Knowledge Base Query:", query)
+
     # Prepare the url for knowledge base retrieval
-    kb_retrieval_url = f"{ai_search_endpoint}/knowledgebases/{ai_search_knowledge_base_name}/retrieve?api-version=2025-11-01-preview"
+    kb_retrieval_url = f"{ai_search_endpoint}/knowledgebases/{ai_search_knowledge_base_name}/retrieve?api-version={ai_search_api_version}"
 
     # Prepare headers and payload for the request
     headers = {
@@ -136,7 +225,8 @@ def _process_kb_response(response_json: str) -> str:
     """
     # Extract the main response text
     response_text = response_json["response"][0]["content"][0]["text"]
-    refined_response_text = re.sub(r'\[ref_id:(\d+)\]', r' *[ref:\1]* ', response_text)
+    refined_response_text = re.sub(
+        r'\[ref_id:(\d+)\]', r' *[ref:\1]* ', response_text)
     # print("Response Text:", refined_response_text)
 
     # Extract unique reference titles
