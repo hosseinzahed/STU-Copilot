@@ -9,12 +9,11 @@ from agent_framework import (
     WorkflowBuilder,
     WorkflowContext,
     MCPStreamableHTTPTool,
-    executor
-)
+    executor)
 from agent_framework.azure import AzureOpenAIChatClient
 from urllib.parse import quote
 import chainlit as cl
-from .data_models import PreprocessOutput, KnowledgeBaseOutput, MSDocsOutput
+from .data_models import PreprocessOutput, KnowledgeBaseOutput, MSDocsOutput, AggregateOutput
 
 
 # Load environment variables for Foundry
@@ -40,30 +39,33 @@ storage_account_name = os.getenv("APP_AZURE_STORAGE_ACCOUNT")
 chat_client = AzureOpenAIChatClient(
     endpoint=foundry_endpoint,
     api_key=foundry_api_key,
-    deployment_name="gpt-5.2-chat"
-)
+    deployment_name="gpt-5.2-chat")
 
 # Define tasks
 analyze_query_task = cl.Task(
     title="Analyzing the query",
     status=cl.TaskStatus.READY,
-    forId="analyze_query_task"
-)
+    forId="analyze_query_task")
+
 retrieve_kb_task = cl.Task(
     title="Searching the knowledge base",
     status=cl.TaskStatus.READY,
-    forId="retrieve_kb_task"
-)
+    forId="retrieve_kb_task")
+
 ms_docs_search_task = cl.Task(
-    title="Searching Microsoft Docs",
+    title="Searching Microsoft docs",
     status=cl.TaskStatus.READY,
-    forId="ms_docs_search_task"
-)
+    forId="ms_docs_search_task")
+
 aggregate_results_task = cl.Task(
     title="Aggregating results",
     status=cl.TaskStatus.READY,
-    forId="aggregate_results_task"
-)
+    forId="aggregate_results_task")
+
+generate_final_output_task = cl.Task(
+    title="Generating final output",
+    status=cl.TaskStatus.READY,
+    forId="generate_final_output_task")
 
 
 def get_compliance_workflow() -> Workflow:
@@ -75,21 +77,19 @@ def get_compliance_workflow() -> Workflow:
     compliance_workflow = (
         WorkflowBuilder(
             name="Compliance Workflow",
-            description="A workflow for handling compliance-related tasks.",
-            # max_iterations=1
-        )
+            description="A workflow for handling compliance-related tasks.")
         .set_start_executor(preprocess_query)
         .add_fan_out_edges(preprocess_query, [retrieve_knowledge_base, search_ms_docs])
-        .add_fan_in_edges([retrieve_knowledge_base, search_ms_docs], aggregate_results)        
-        .build()
-    )
+        .add_fan_in_edges([retrieve_knowledge_base, search_ms_docs], aggregate_results)
+        .add_edge(aggregate_results, generate_final_output)
+        .build())
 
     return compliance_workflow
 
 
 @executor(id="preprocess_query")
 async def preprocess_query(messages: list[ChatMessage],
-                           ctx: WorkflowContext[PreprocessOutput, Never]) -> None:
+                           ctx: WorkflowContext[PreprocessOutput]) -> None:
     """Executor to preprocess the input messages.
     Args:
         messages (list[ChatMessage]): The list of chat messages.
@@ -107,19 +107,21 @@ async def preprocess_query(messages: list[ChatMessage],
             analyze_query_task,
             retrieve_kb_task,
             ms_docs_search_task,
-            aggregate_results_task
-        ]
-    )
-    print(task_list.to_dict())
+            aggregate_results_task,
+            generate_final_output_task
+        ])
 
     # Prepare the output
     output = PreprocessOutput(
         messages=messages,
-        task_list=task_list
-    )
+        task_list=task_list)
 
     # Update the analyze query task status
     analyze_query_task.status = cl.TaskStatus.DONE
+    retrieve_kb_task.status = cl.TaskStatus.READY
+    ms_docs_search_task.status = cl.TaskStatus.READY
+    aggregate_results_task.status = cl.TaskStatus.READY
+    generate_final_output_task.status = cl.TaskStatus.READY
     await task_list.update()
 
     # Send the output to the next executor
@@ -128,7 +130,7 @@ async def preprocess_query(messages: list[ChatMessage],
 
 @executor(id="retrieve_knowledge_base")
 async def retrieve_knowledge_base(input: PreprocessOutput,
-                                  ctx: WorkflowContext[KnowledgeBaseOutput, Never]) -> None:
+                                  ctx: WorkflowContext[KnowledgeBaseOutput]) -> None:
     """Executor to retrieve information from the compliance knowledge base.
     Args:
         query (str): The query string to search in the knowledge base.
@@ -150,8 +152,7 @@ async def retrieve_knowledge_base(input: PreprocessOutput,
     # Prepare the output
     output = KnowledgeBaseOutput(
         answer=processed_md_response,
-        task_list=input.task_list
-    )
+        task_list=input.task_list)
 
     # Update the task status
     retrieve_kb_task.status = cl.TaskStatus.DONE
@@ -162,7 +163,7 @@ async def retrieve_knowledge_base(input: PreprocessOutput,
 
 
 @executor(id="search_ms_docs")
-async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOutput, Never]) -> None:
+async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOutput]) -> None:
     """Executor to search Microsoft Docs for additional information.
     Args:
         query (str): The query string to search in Microsoft Docs.
@@ -176,27 +177,25 @@ async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOut
     # Create the MCP tool
     mcp_server = MCPStreamableHTTPTool(
         name="Microsoft Docs MCP Tool",
-        url="https://learn.microsoft.com/api/mcp"
-    )
+        url="https://learn.microsoft.com/api/mcp")
 
     # Create the agent
     microsoft_docs_agent = ChatAgent(
         chat_client=AzureOpenAIChatClient(
             endpoint=foundry_endpoint,
             api_key=foundry_api_key,
-            deployment_name="gpt-5.2-chat"
-        ),
+            deployment_name="gpt-5.2-chat"),
         name="microsoft_docs_agent",
         description="Microsoft Docs agent that searches for relevant Microsoft documentation.",
         instructions="""
                 You provide information from Microsoft Docs using the search tool.
-                - Rephrase queries max into up to 3 parallel searches for better results
+                - Rephrase the query into multiple relevant intent queries for better search results
+                - Call the tool maximum 3 times at a time with different queries
                 - Cite sources with links and include all images from search results
-                - Format responses in markdown with related topic suggestions
+                - Format responses in markdown with proper headers no bigger than `###`
             """,
         tools=[mcp_server],
-        allow_multiple_tool_calls=True
-    )
+        allow_multiple_tool_calls=True)
 
     # Run the agent with the query
     response = await microsoft_docs_agent.run(input.messages[-1].text)
@@ -204,8 +203,7 @@ async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOut
     # Prepare the output
     output = MSDocsOutput(
         answer=response.text,
-        task_list=input.task_list
-    )
+        task_list=input.task_list)
 
     # Update the task status
     ms_docs_search_task.status = cl.TaskStatus.DONE
@@ -217,7 +215,7 @@ async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOut
 
 @executor(id="aggregate_results")
 async def aggregate_results(results: list[Any],
-                            ctx: WorkflowContext[Never, str]) -> None:
+                            ctx: WorkflowContext[AggregateOutput]) -> None:
     """Executor to aggregate results from knowledge base and Microsoft Docs search.
     Args:
         kb_output (KnowledgeBaseOutput): The output from the knowledge base retrieval executor.
@@ -236,21 +234,43 @@ async def aggregate_results(results: list[Any],
         elif isinstance(result, MSDocsOutput):
             ms_docs_output = result
 
-    # Update the task status
-    aggregate_results_task.status = cl.TaskStatus.RUNNING
-    await kb_output.task_list.update()
-
     # Aggregate the results
-    final_output = f"> ## 📃 Knowledge Base Results: \n{kb_output.answer}\n --- \n> ## 📚 Microsoft Docs Results: \n{ms_docs_output.answer}"
+    aggregated_response = f"> ## 📃 Knowledge Base Results: \n{kb_output.answer}\n --- \n> ## 📚 Microsoft Docs Results: \n{ms_docs_output.answer}"
+
+    # Prepare the output
+    output = AggregateOutput(
+        aggregated_response=aggregated_response,
+        task_list=kb_output.task_list)
 
     # Update the task list status to completed
     aggregate_results_task.status = cl.TaskStatus.DONE
-    kb_output.task_list.status = "✅ Completed"
     await kb_output.task_list.update()
-    await kb_output.task_list.remove()
-    
+
     # Return the final aggregated output
-    await ctx.yield_output(final_output)
+    await ctx.send_message(output)
+
+
+@executor(id="generate_final_output")
+async def generate_final_output(input: AggregateOutput,
+                                ctx: WorkflowContext[Never, str]) -> None:
+    """Executor to generate the final output response.
+    Args:
+        aggregated_response (str): The aggregated response from previous executors.
+    Returns:
+        str: The final formatted response.
+    """
+    # Here you can add any final formatting or processing if needed
+    # Placeholder for any additional processing
+    final_response = input.aggregated_response
+
+    # Update the task status
+    generate_final_output_task.status = cl.TaskStatus.DONE
+    input.task_list.status = "✅ Completed"
+    await input.task_list.update()
+    await input.task_list.remove()
+
+    # Return the final response
+    await ctx.yield_output(final_response)
 
 
 async def _retrieve_knowledge(query: str) -> str:

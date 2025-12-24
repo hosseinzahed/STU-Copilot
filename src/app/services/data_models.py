@@ -35,8 +35,7 @@ class ChatMessage:
             message=data.get("message"),
             timestamp=data.get("timestamp"),
             role=data.get("role", "user"),
-            type=data.get("type", "message")
-        )
+            type=data.get("type", "message"))
 
 
 class ChatThread:
@@ -77,8 +76,7 @@ class ChatThread:
             user_job_title=data.get("user_job_title"),
             messages=messages,
             created_at=data.get("created_at"),
-            type=data.get("type", "thread")
-        )
+            type=data.get("type", "thread"))
 
 
 @dataclass
@@ -99,4 +97,10 @@ class KnowledgeBaseOutput:
 class MSDocsOutput:
     """Data class to hold the output of the Microsoft Docs search executor."""
     answer: str
+    task_list: cl.TaskList
+
+@dataclass
+class AggregateOutput:
+    """Data class to hold the output of the aggregate results executor."""
+    aggregated_response: str
     task_list: cl.TaskList
