@@ -99,6 +99,13 @@ async def preprocess_query(messages: list[ChatMessage],
         PreprocessOutput: The preprocessed output containing messages, chat thread, and task list.
     """
 
+    # Update the analyze query task status
+    analyze_query_task.status = cl.TaskStatus.DONE
+    retrieve_kb_task.status = cl.TaskStatus.READY
+    ms_docs_search_task.status = cl.TaskStatus.READY
+    aggregate_results_task.status = cl.TaskStatus.READY
+    generate_final_output_task.status = cl.TaskStatus.READY
+
     # Create a new task list
     task_list = cl.TaskList(
         name="compliance_workflow_tasks",
@@ -110,20 +117,13 @@ async def preprocess_query(messages: list[ChatMessage],
             ms_docs_search_task,
             aggregate_results_task,
             generate_final_output_task
-        ])
+        ])    
+    await task_list.update()
 
     # Prepare the output
     output = PreprocessOutput(
         messages=messages,
         task_list=task_list)
-
-    # Update the analyze query task status
-    analyze_query_task.status = cl.TaskStatus.DONE
-    retrieve_kb_task.status = cl.TaskStatus.READY
-    ms_docs_search_task.status = cl.TaskStatus.READY
-    aggregate_results_task.status = cl.TaskStatus.READY
-    generate_final_output_task.status = cl.TaskStatus.READY
-    await task_list.update()
 
     # Send the output to the next executor
     await ctx.send_message(output)
@@ -194,6 +194,8 @@ async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOut
                 - Call the tool maximum 3 times at a time with different queries
                 - Cite sources with links and include all images from search results
                 - Format responses in markdown with proper headers no bigger than `###`
+                - Add relevant icons to headers based on the content
+                - Use an official tone
             """,
         tools=[mcp_server],
         allow_multiple_tool_calls=True)
