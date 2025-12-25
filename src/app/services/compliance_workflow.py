@@ -201,7 +201,7 @@ async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOut
         allow_multiple_tool_calls=True)
 
     # Run the agent with the query
-    response = await microsoft_docs_agent.run(input.messages[-1].text)
+    response = await microsoft_docs_agent.run(input.messages)
 
     # Prepare the output
     output = MSDocsOutput(
