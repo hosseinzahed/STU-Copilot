@@ -98,6 +98,8 @@ async def preprocess_query(messages: list[ChatMessage],
     Returns:
         PreprocessOutput: The preprocessed output containing messages, chat thread, and task list.
     """
+    # Send a thinking message
+    await cl.Message("Planning...").send()
 
     # Update the analyze query task status
     analyze_query_task.status = cl.TaskStatus.DONE

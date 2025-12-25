@@ -8,8 +8,7 @@ from agent_framework import (
     function_middleware)
 from agent_framework.azure import (
     AzureOpenAIChatClient,
-    AzureAIAgentClient,
-    AzureAISearchContextProvider)
+    AzureAIAgentClient)
 from azure.identity.aio import DefaultAzureCredential
 
 from .cache_service import cache_service
@@ -318,84 +317,6 @@ class AgentFactory:
         )
 
         return architect_agent
-
-    def get_compliance_agent(self) -> ChatAgent:
-        """Create a compliance agent with the necessary plugins."""
-        agent_name = "compliance_agent"
-        model_name = "gpt-5.2-chat"
-        ai_search_endpoint = os.getenv("AI_SEARCH_ENDPOINT")
-        ai_search_key = os.getenv("AI_SEARCH_KEY")
-        knowledge_base_name = "stu-copilot-kb"
-
-        # AI Search Context Provider
-        # Create the MCP tool
-        # mcp_server = MCPStreamableHTTPTool(
-        #     name="Compliance Knowledge Base",
-        #     description="AI Search tool to retrieve compliance documentation and regulatory guidance.",
-        #     url=f"{ai_search_endpoint}/knowledgebases/{knowledge_base_name}/mcp?api-version=2025-11-01-preview",
-        #     headers={
-        #         "api-key": f"{ai_search_key}",
-        #         "Content-Type": "application/json"
-        #     },
-        #     approval_mode="never_require",
-        #     # allowed_tools=["knowledge_base_retrieve"],
-        #     load_prompts=False,
-        #     load_tools=True,
-        #     request_timeout=60,
-        #     timeout=60
-        # )
-
-        search_provider = AzureAISearchContextProvider(
-            endpoint=ai_search_endpoint,
-            api_key=ai_search_key,
-            credential=DefaultAzureCredential() if not ai_search_key else None,
-            mode="agentic",
-            knowledge_base_name=knowledge_base_name,
-            # Optional: Configure retrieval behavior
-            # "extractive_data" or "answer_synthesis"
-            knowledge_base_output_mode="answer_synthesis",
-            retrieval_reasoning_effort="medium",  # or "medium", "low"
-        )
-
-        # Create the agent
-        compliance_agent = ChatAgent(
-            chat_client=self.chat_client,
-            name=agent_name,
-            description="Compliance agent that ensures adherence to regulations and standards.",
-            instructions=cache_service.load_prompt(agent_name),
-            # instructions="""
-            #     You are a compliance assistant that helps ensure content adheres to relevant regulations and standards.
-            #     - Use the knowledge context provider to retrieve information from the compliance knowledge base.
-            #     - Provide the output with the following markdown format. 'Document title' in references are coming from the 'title' field in the knowledge base results and Reference Links are coming from the urls provided in the knowledge base results.
-            #     ```markdown
-            #         ### Intent1 Title
-            #         Description of the intent1.
-            #         **References:**
-            #         - *Document1 title*
-            #         - *Document2 title*
-            #         - [Link1 title](Link1 url)
-            #         - [Link2 title](Link2 url)
-            #         ---
-            #         ### Intent2 Title
-            #         Description of the intent2.
-            #         **References:**
-            #         - *Document1 title*
-            #         - *Document2 title*
-            #         - [Link1 title](Link1 url)
-            #         - [Link2 title](Link2 url)
-            #     ```
-            #     - Ensure all responses are accurate, concise, and clearly scoped to the user's question.
-            #     - If no relevant information is found, just respond with "No relevant information found in the knowledge base." without any additional text.
-            # """,
-            model_id=model_name,
-            context_providers=[search_provider],
-            middleware=[
-                self.simple_agent_middleware,
-                self.simple_function_middleware
-            ]
-        )
-
-        return compliance_agent
 
     @agent_middleware  # Explicitly marks as agent middleware
     async def simple_agent_middleware(self, context, next):
