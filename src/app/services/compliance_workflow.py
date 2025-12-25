@@ -14,7 +14,7 @@ from agent_framework.azure import AzureOpenAIChatClient
 from urllib.parse import quote
 import chainlit as cl
 from .data_models import PreprocessOutput, KnowledgeBaseOutput, MSDocsOutput, AggregateOutput
-
+from .storage_account_service import storage_account_service
 
 # Load environment variables for Foundry
 foundry_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -30,10 +30,11 @@ ai_search_api_key = os.getenv("AI_SEARCH_KEY")
 ai_search_api_version = os.getenv(
     "AI_SEARCH_API_VERSION", "2025-11-01-preview")
 ai_search_knowledge_base_name = os.getenv(
-    "KNOWLEDGE_BASE_NAME", "stu-copilot-kb")
+    "KNOWLEDGE_BASE_NAME", "kb-compliance-general")
 
 # Load environment variable for storage account
 storage_account_name = os.getenv("APP_AZURE_STORAGE_ACCOUNT")
+compliance_container_name = "compliance-docs"
 
 # Initialize the Azure OpenAI Chat Client
 chat_client = AzureOpenAIChatClient(
@@ -337,12 +338,19 @@ def _process_kb_response(response_json: str) -> str:
         r'\[ref_id:(\d+)\]', r' *[ref:\1]* ', response_text)
     # print("Response Text:", refined_response_text)
 
+    storage_sas_token = storage_account_service.generate_sas_token(
+        container_name=compliance_container_name, expiry_weeks=1)
+
+    storage_url = f"https://{storage_account_name}.blob.core.windows.net/{compliance_container_name}"
+
     # Extract unique reference titles
-    references_list = "\n".join(
-        f"{ref['id']}. [{ref['title']}]({quote(ref['title'])}) - (Page #{_extract_page(ref["docKey"])})"
-        for ref in sorted(response_json.get("references", []), key=lambda x: int(x['id']))
-    )
-    # print("References List:", references_list)
+    references_list_items = []
+    for ref in sorted(response_json.get("references", []), key=lambda x: int(x['id'])):
+        page_num = _extract_page(ref['docKey'])
+        reference_line = f"{ref['id']}. [{ref['title']}]({storage_url}/{quote(ref['title'])}?{storage_sas_token}#page={page_num}) - (Page #{page_num})"
+        references_list_items.append(reference_line)
+
+    references_list = "\n".join(references_list_items)
 
     # Combine response text with references
     processed_answer = f"{refined_response_text}\n\n### References:\n{references_list}"
