@@ -60,3 +60,19 @@ def compliance_crawler_func(timer_request: func.TimerRequest) -> None:
     )
     compliance_crawler.run()
     logging.info('Compliance crawler function finished.')
+
+
+# @app.timer_trigger(schedule="0 0 0 * * *",  # Run every day at midnight
+#                    arg_name="timer_request",
+#                    run_on_startup=True,
+#                    use_monitor=False)
+# def seismic_crawler_func(timer_request: func.TimerRequest) -> None:
+#     logging.info('Seismic crawler function started.')
+#     from seismic_crawler import SeismicCrawler
+#     seismic_crawler = SeismicCrawler(
+#         cosmos_db_service=cosmos_db_service,
+#         foundry_service=foundry_service
+#     )
+#     seismic_data = seismic_crawler.fetch_data()
+#     seismic_crawler.process_data(seismic_data)
+#     logging.info('Seismic crawler function finished.')
