@@ -77,8 +77,8 @@ class ChatService:
                 "icon": "search",
                 "is_button": False,
                 "is_persistent": False,
-                "is_command": True,
-                "is_action": True,
+                "is_command": False,
+                "is_action": False,
                 "command": "Bing Search",
                 "action_name": "action_button",
                 "agent_object": agents.get("bing_search_agent")
