@@ -3,7 +3,7 @@ import logging
 from dotenv import load_dotenv
 from cosmos_db_service import CosmosDBService
 from foundry_service import FoundryService
-from psql_ping_service import PostgresPingService
+from storage_account_service import StorageAccountService
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -13,10 +13,13 @@ load_dotenv(override=True)
 # logging.getLogger("azure.functions")
 logging.getLogger("azure.cosmos").setLevel(logging.CRITICAL)
 
+# Initialize the Function App
 app = func.FunctionApp()
 
+# Initialize services
 cosmos_db_service = CosmosDBService()
 foundry_service = FoundryService()
+storage_account_service = StorageAccountService()
 
 
 @app.timer_trigger(schedule="0 0 0 * * *",  # Run every day at midnight
@@ -45,25 +48,31 @@ def blogs_crawler_func(timer_request: func.TimerRequest) -> None:
     logging.info('Blogs crawler function finished.')
 
 
-# @app.timer_trigger(schedule="0 0 0 1 1 *",  # Run every year on January 1st
+@app.timer_trigger(schedule="0 0 0 * * *",  # Run every day at midnight
+                   arg_name="timer_request",
+                   run_on_startup=False,
+                   use_monitor=False)
+def compliance_crawler_func(timer_request: func.TimerRequest) -> None:
+    logging.info('Compliance crawler function started.')
+    from compliance_crawler import ComplianceCrawler
+    compliance_crawler = ComplianceCrawler(
+        storage_account_service=storage_account_service
+    )
+    compliance_crawler.run()
+    logging.info('Compliance crawler function finished.')
+
+
+# @app.timer_trigger(schedule="0 0 0 * * *",  # Run every day at midnight
 #                    arg_name="timer_request",
-#                    run_on_startup=False,
+#                    run_on_startup=True,
 #                    use_monitor=False)
 # def seismic_crawler_func(timer_request: func.TimerRequest) -> None:
 #     logging.info('Seismic crawler function started.')
 #     from seismic_crawler import SeismicCrawler
-#     seismic_crawler = SeismicCrawler(cosmos_db_service=cosmos_db_service,
-#                                      foundry_service=foundry_service)
-#     seismic_crawler.run()
+#     seismic_crawler = SeismicCrawler(
+#         cosmos_db_service=cosmos_db_service,
+#         foundry_service=foundry_service
+#     )
+#     seismic_data = seismic_crawler.fetch_data()
+#     seismic_crawler.process_data(seismic_data)
 #     logging.info('Seismic crawler function finished.')
-
-
-# @app.timer_trigger(schedule="0 */5 * * * *",
-#                    arg_name="timer_request",
-#                    run_on_startup=False,
-#                    use_monitor=False)
-# def ping_psql_func(timer_request: func.TimerRequest) -> None:
-#     logging.info('Ping PostgreSQL function started.')
-#     postgres_ping_service = PostgresPingService()
-#     postgres_ping_service.run()
-#     logging.info('Ping PostgreSQL function finished.')

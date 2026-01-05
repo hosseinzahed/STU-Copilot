@@ -13,7 +13,7 @@ class Tools:
 
     @ai_function(name="search_github_repositories",
                  description="Search for relevant GitHub repositories for a given topic.")
-    @cl.step(type="tool", name="Search GitHub Repositories")
+    #@cl.step(type="tool", name="Search GitHub Repositories")
     async def search_github_repositories(prompt: Annotated[str, Field(description="The topic to search for")]) -> list:
         """Search for relevant GitHub repositories."""
         results = cosmos_db_service.hybrid_search(
@@ -26,7 +26,7 @@ class Tools:
 
     @ai_function(name="search_blog_posts",
                  description="Search for relevant blog posts for a given topic.")
-    @cl.step(type="tool", name="Search Blog Posts")
+    #@cl.step(type="tool", name="Search Blog Posts")
     async def search_blog_posts(prompt: Annotated[str, Field(description="The topic to search for")]) -> list:
         """Search for relevant blog posts."""
         results = cosmos_db_service.hybrid_search(
@@ -38,7 +38,7 @@ class Tools:
 
     @ai_function(name="search_seismic_presentations",
                  description="Search for relevant Seismic presentations for a given topic.")
-    @cl.step(type="tool", name="Search Seismic Presentations")
+    #@cl.step(type="tool", name="Search Seismic Presentations")
     async def search_seismic_presentations(prompt: Annotated[str, Field(description="The topic to search for")]) -> list:
         """Search for relevant Seismic presentations."""
         results = cosmos_db_service.hybrid_search(
@@ -50,7 +50,7 @@ class Tools:
         return results
 
     @ai_function(name="search_by_bing", description="Search by Bing for a given query.")
-    @cl.step(type="tool", name="Search by Bing")
+    #@cl.step(type="tool", name="Search by Bing")
     async def search_by_bing(prompt: Annotated[str, Field(description="The query to search for")]) -> str:
         """Perform a Bing search."""
 

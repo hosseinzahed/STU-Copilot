@@ -16,7 +16,7 @@ logger = logging.getLogger("azure.functions")
 # Define the path to the seismic data source
 # This should point to the processed seismic data file
 data_source = str(Path(__file__).resolve()
-                  .parents[2] / '.temp' / 'L200-300-400-processed.json')
+                  .parents[2] / '.temp' / 'xxx-processed.json')
 
 
 class SeismicCrawler:

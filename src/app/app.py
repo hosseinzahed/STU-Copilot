@@ -75,7 +75,7 @@ async def on_chat_start():
     chat_history: list[ChatMessage] = []
 
     # Clear the latest agent name
-    latest_agent_name = None
+    last_used_agent_name = None
 
     # Store in user session 
     cl.user_session.set("chat_history", chat_history)
@@ -84,7 +84,7 @@ async def on_chat_start():
     cl.user_session.set("chat_thread", None)
     
     # Store latest agent name
-    cl.user_session.set("latest_agent_name", latest_agent_name)
+    cl.user_session.set("last_used_agent_name", last_used_agent_name)
 
 
 @cl.on_message
@@ -98,13 +98,13 @@ async def on_message(user_message: cl.Message):
     responder_agent: ChatAgent = chat_service.select_responder_agent(
         agents=agents,
         current_message=user_message,
-        latest_agent_name=cl.user_session.get("latest_agent_name")
+        last_used_agent_name=cl.user_session.get("last_used_agent_name")
     )
 
     print(f"Selected responder agent: {responder_agent.name}")
 
     # Set the latest agent in the user session
-    cl.user_session.set("latest_agent_name", responder_agent.name)
+    cl.user_session.set("last_used_agent_name", responder_agent.name)
 
     # Append user message to chat history
     chat_history.append(ChatMessage(role="user", text=user_message.content))

@@ -1,12 +1,19 @@
 import os
 import chainlit as cl
 import logging
-from agent_framework import (ChatAgent, MCPStreamableHTTPTool,
-                             agent_middleware, function_middleware)
-from agent_framework.azure import AzureOpenAIChatClient, AzureAIAgentClient
+from agent_framework import (
+    ChatAgent,
+    MCPStreamableHTTPTool,
+    agent_middleware,
+    function_middleware)
+from agent_framework.azure import (
+    AzureOpenAIChatClient,
+    AzureAIAgentClient)
 from azure.identity.aio import DefaultAzureCredential
+
 from .cache_service import cache_service
 from .tool_factory import tools
+from .compliance_workflow import get_compliance_workflow
 
 # Configure logging
 logging.basicConfig(level=logging.CRITICAL)
@@ -26,7 +33,7 @@ class AgentFactory:
             deployment_name="gpt-5.2-chat"
         )
 
-        # Initialize agents        
+        # Initialize agents
         self.agents = {
             "github_agent": self.get_github_agent(),
             "github_docs_search_agent": self.get_github_docs_search_agent(),
@@ -35,7 +42,9 @@ class AgentFactory:
             "seismic_agent": self.get_seismic_agent(),
             "bing_search_agent": self.get_bing_search_agent(),
             # "architect_agent": self.get_architect_agent(),
-            "aws_docs_agent": self.get_aws_docs_agent()
+            "aws_docs_agent": self.get_aws_docs_agent(),
+            # "compliance_agent": self.get_compliance_agent()
+            "compliance_agent": get_compliance_workflow().as_agent(name="compliance_agent")
         }
         self.agents["orchestrator_agent"] = self.get_orchestrator_agent()
 
@@ -320,6 +329,7 @@ class AgentFactory:
         """Function middleware with decorator - types are inferred."""
         async with cl.Step(type="tool", name=f"{context.function.name}") as step:
             step.input = context.arguments
+            step.output = context.result
         # await cl.Message(f"Calling function: {context.function.name}").send()
         await next(context)
 

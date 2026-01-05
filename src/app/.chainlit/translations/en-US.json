@@ -123,7 +123,7 @@
             "title": "Settings panel",
             "customize": "Customize your chat settings here"
         },
-        "watermark": "LLMs can make mistakes. Check important info."
+        "watermark": "STU Copilot v2.0 - LLMs can make mistakes. Check important info."
     },
     "threadHistory": {
         "sidebar": {
