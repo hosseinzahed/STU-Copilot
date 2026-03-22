@@ -6,7 +6,7 @@ from azure.identity.aio import DefaultAzureCredential
 import chainlit as cl
 from typing import List
 from dotenv import load_dotenv, dotenv_values
-from agent_framework import MCPStreamableHTTPTool, ChatMessage
+from agent_framework import MCPStreamableHTTPTool, Message
 
 load_dotenv(override=True)
 
@@ -124,7 +124,7 @@ async def retrieve_content() -> str:
     )
 
     results = await search_provider.invoking(
-        ChatMessage(role="user", content="azure bing"))
+        Message(role="user", text="azure bing"))
 
     print(results)
 

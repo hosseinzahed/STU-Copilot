@@ -1,6 +1,6 @@
 import chainlit as cl
 from chainlit.types import CommandDict
-from agent_framework import ChatAgent
+from agent_framework import Agent
 from .agent_factory import agent_factory
 
 
@@ -126,9 +126,9 @@ class ChatService:
         return commands
 
     def select_responder_agent(self,
-                               agents: dict[str, ChatAgent],
+                               agents: dict[str, Agent],
                                current_message: cl.Message,
-                               last_used_agent_name: str) -> ChatAgent:
+                               last_used_agent_name: str) -> Agent:
         """Select the appropriate agent based on the current message and chat history."""
 
         print(f"Current message command: {current_message.command}")
@@ -139,7 +139,7 @@ class ChatService:
             # Select the agent based on the command from self.agents_dict
             for agent in self.agents_dict.values():
                 if agent["is_action"] and agent["command"] == current_message.command:
-                    selected_agent: ChatAgent = agent["agent_object"]
+                    selected_agent: Agent = agent["agent_object"]
                     print(
                         f"Selected agent for command '{current_message.command}': {selected_agent.name}")
                     return selected_agent

@@ -3,7 +3,8 @@ from typing import List, Dict, Optional
 import chainlit as cl
 from services.chat_service import chat_service
 from services.agent_factory import agent_factory
-from agent_framework import ChatAgent, ChatMessage, AgentThread
+from agent_framework import Agent, Message, AgentSession
+from agent_framework.observability import configure_otel_providers
 import logging
 import socketio
 from engineio.payload import Payload
@@ -13,6 +14,8 @@ from utils import check_env_vars, extract_image_elements
 # Check for required environment variables
 check_env_vars()
 
+# Configure OpenTelemetry providers
+configure_otel_providers()
 
 # Set the buffer size to 10MB or use a configurable value from the environment
 MAX_HTTP_BUFFER_SIZE = int(os.getenv("MAX_HTTP_BUFFER_SIZE", 100_000_000))
@@ -41,7 +44,7 @@ logging.getLogger("socketio").setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 # Initialize services and agents
-agents: dict[str, ChatAgent] = agent_factory.get_agents()
+agents: dict[str, Agent] = agent_factory.get_agents()
 
 
 @cl.oauth_callback
@@ -72,17 +75,17 @@ async def on_chat_start():
     )
 
     # Initialize the chat service and chat history
-    chat_history: list[ChatMessage] = []
+    chat_history: list[Message] = []
 
     # Clear the latest agent name
     last_used_agent_name = None
 
-    # Store in user session 
+    # Store in user session
     cl.user_session.set("chat_history", chat_history)
-    
+
     # Initialize empty chat thread
-    cl.user_session.set("chat_thread", None)
-    
+    cl.user_session.set("chat_session", None)
+
     # Store latest agent name
     cl.user_session.set("last_used_agent_name", last_used_agent_name)
 
@@ -91,40 +94,46 @@ async def on_chat_start():
 async def on_message(user_message: cl.Message):
 
     # Retrieve chat history and thread from user session
-    chat_history: list[ChatMessage] = cl.user_session.get("chat_history")
-    chat_thread: AgentThread = cl.user_session.get("chat_thread")
+    chat_history: list[Message] = cl.user_session.get("chat_history")
 
     # Select the appropriate responder agent
-    responder_agent: ChatAgent = chat_service.select_responder_agent(
+    responder_agent: Agent = chat_service.select_responder_agent(
         agents=agents,
         current_message=user_message,
         last_used_agent_name=cl.user_session.get("last_used_agent_name")
     )
-
     print(f"Selected responder agent: {responder_agent.name}")
+
+    # Get chat session from user session or create a new one if it doesn't exist
+    chat_session: AgentSession = cl.user_session.get("chat_session")
+    if not chat_session:
+        # Create a new chat session for the agent
+        chat_session = responder_agent.create_session()
+        print(f"Created new chat session with ID: {chat_session.session_id}")
 
     # Set the latest agent in the user session
     cl.user_session.set("last_used_agent_name", responder_agent.name)
 
     # Append user message to chat history
-    chat_history.append(ChatMessage(role="user", text=user_message.content))
+    chat_history.append(Message(role="user", text=user_message.content))
     answer = cl.Message(content="")
 
     # Set the latest agent in the user session
     cl.user_session.set("latest_agent", responder_agent.name)
 
     # Stream the agent's response token by token
-    async for token in responder_agent.run_stream(
+    async for chunk in responder_agent.run(
             messages=chat_history,
-            chat_thread=chat_thread
+            session=chat_session,
+            stream=True
     ):
         # Append token to the answer content
-        if token.text:
-            await answer.stream_token(token.text)
+        if chunk.text:
+            await answer.stream_token(chunk.text)
 
     # Update chat history and thread
-    cl.user_session.set("chat_thread", chat_thread)
-    chat_history.append(ChatMessage(role="assistant", text=answer.content))
+    cl.user_session.set("chat_session", chat_session)
+    chat_history.append(Message(role="assistant", text=answer.content))
 
     # Check for image URLs in the response and display them
     image_elements = extract_image_elements(answer.content)
@@ -144,25 +153,25 @@ async def on_chat_resume(thread: ThreadDict):
     )
 
     # Reconstruct chat history from the thread steps
-    chat_history: list[ChatMessage] = []
+    chat_history: list[Message] = []
 
     # Rebuild chat history
     for step in thread["steps"]:
         if step["type"] == "assistant_message":
-            chat_history.append(ChatMessage(
-                role="assistant", content=step["output"]))
+            chat_history.append(Message(
+                role="assistant", text=step["output"]))
         elif step["type"] == "user_message":
-            chat_history.append(ChatMessage(
-                role="user", content=step["output"]))
+            chat_history.append(Message(
+                role="user", text=step["output"]))
 
     # Store chat history in user session
     cl.user_session.set("chat_history", chat_history)
 
-    # Reconstruct the AgentThread from the thread ID
-    chat_thread = AgentThread(service_thread_id=thread["id"])
+    # Reconstruct the AgentSession from the thread ID
+    chat_session = AgentSession(session_id=thread["id"])
 
     # Store chat thread in user session
-    cl.user_session.set("chat_thread", chat_thread)
+    cl.user_session.set("chat_session", chat_session)
 
 
 @cl.set_starters  # type: ignore
@@ -188,13 +197,13 @@ async def on_action_button(action: cl.Action):
     """Handle action button clicks."""
 
     # Retrieve chat history from user session
-    chat_history: list[ChatMessage] = cl.user_session.get("chat_history")
-    
+    chat_history: list[Message] = cl.user_session.get("chat_history")
+
     # Combine all user messages into a single prompt
     user_prompts = "\n".join(
-        [msg.content for msg in chat_history if msg.role == "user"]
+        [msg.text for msg in chat_history if msg.role == "user"]
     )
-    
+
     # Send a new message with the combined prompts and command
     await on_message(cl.Message(
         content=user_prompts,

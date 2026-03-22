@@ -3,26 +3,20 @@ import re
 import aiohttp
 from typing import Any, Never
 from agent_framework import (
-    ChatAgent,
-    ChatMessage,
+    Agent,
+    Message,
     Workflow,
     WorkflowBuilder,
     WorkflowContext,
     MCPStreamableHTTPTool,
     executor)
-from agent_framework.azure import AzureOpenAIChatClient
+from agent_framework.azure import AzureOpenAIResponsesClient, AzureAISearchContextProvider
+from azure.search.documents import SearchClient
 from urllib.parse import quote
+from azure.identity.aio import DefaultAzureCredential
 import chainlit as cl
 from .data_models import PreprocessOutput, KnowledgeBaseOutput, MSDocsOutput, AggregateOutput
 from .storage_account_service import storage_account_service
-
-# Load environment variables for Foundry
-foundry_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-foundry_api_key = os.getenv("AI_FOUNDRY_KEY")
-foundry_project_endpoint = os.getenv(
-    "AI_FOUNDRY_PROJECT_ENDPOINT")
-foundry_api_version = os.getenv(
-    "AI_FOUNDRY_API_VERSION", "2024-12-01-preview")
 
 # Load environment variables for AI Search
 ai_search_endpoint = os.getenv("AI_SEARCH_ENDPOINT")
@@ -36,10 +30,13 @@ ai_search_knowledge_base_name = os.getenv(
 storage_account_name = os.getenv("APP_AZURE_STORAGE_ACCOUNT")
 compliance_container_name = "compliance-docs"
 
+# Credential
+credential = DefaultAzureCredential()
+
 # Initialize the Azure OpenAI Chat Client
-chat_client = AzureOpenAIChatClient(
-    endpoint=foundry_endpoint,
-    api_key=foundry_api_key,
+foundry_client = AzureOpenAIResponsesClient(
+    project_endpoint=os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT"),
+    credential=credential,
     deployment_name="gpt-5.2-chat")
 
 # Define tasks
@@ -48,15 +45,15 @@ analyze_query_task = cl.Task(
     status=cl.TaskStatus.READY,
     forId="analyze_query_task")
 
-retrieve_kb_task = cl.Task(
-    title="Searching the knowledge base",
-    status=cl.TaskStatus.READY,
-    forId="retrieve_kb_task")
-
 ms_docs_search_task = cl.Task(
     title="Searching Microsoft docs",
     status=cl.TaskStatus.READY,
     forId="ms_docs_search_task")
+
+retrieve_kb_task = cl.Task(
+    title="Searching the knowledge base",
+    status=cl.TaskStatus.READY,
+    forId="retrieve_kb_task")
 
 aggregate_results_task = cl.Task(
     title="Aggregating results",
@@ -78,22 +75,23 @@ def get_compliance_workflow() -> Workflow:
     compliance_workflow = (
         WorkflowBuilder(
             name="Compliance Workflow",
-            description="A workflow for handling compliance-related tasks.")
-        .set_start_executor(preprocess_query)
-        .add_fan_out_edges(preprocess_query, [retrieve_knowledge_base, search_ms_docs])
-        .add_fan_in_edges([retrieve_knowledge_base, search_ms_docs], aggregate_results)
-        .add_edge(aggregate_results, generate_final_output)
+            description="A workflow for handling compliance-related tasks.",
+            start_executor=preprocess_query,
+            output_executors=[generate_final_output])
+        .add_fan_out_edges(preprocess_query, [search_ms_docs, retrieve_knowledge_base])
+        .add_fan_in_edges([search_ms_docs, retrieve_knowledge_base], aggregate_results)
+        .add_edge(aggregate_results, generate_final_output)        
         .build())
 
     return compliance_workflow
 
 
 @executor(id="preprocess_query")
-async def preprocess_query(messages: list[ChatMessage],
+async def preprocess_query(messages: list[Message],
                            ctx: WorkflowContext[PreprocessOutput]) -> None:
     """Executor to preprocess the input messages.
     Args:
-        messages (list[ChatMessage]): The list of chat messages.
+        messages (list[Message]): The list of chat messages.
         chat_thread (AgentThread): The current chat thread.
     Returns:
         PreprocessOutput: The preprocessed output containing messages, chat thread, and task list.
@@ -103,8 +101,8 @@ async def preprocess_query(messages: list[ChatMessage],
 
     # Update the analyze query task status
     analyze_query_task.status = cl.TaskStatus.DONE
-    retrieve_kb_task.status = cl.TaskStatus.READY
     ms_docs_search_task.status = cl.TaskStatus.READY
+    retrieve_kb_task.status = cl.TaskStatus.READY    
     aggregate_results_task.status = cl.TaskStatus.READY
     generate_final_output_task.status = cl.TaskStatus.READY
 
@@ -115,11 +113,11 @@ async def preprocess_query(messages: list[ChatMessage],
         status="⌛ Running…",
         tasks=[
             analyze_query_task,
-            retrieve_kb_task,
             ms_docs_search_task,
+            retrieve_kb_task,            
             aggregate_results_task,
             generate_final_output_task
-        ])    
+        ])
     await task_list.update()
 
     # Prepare the output
@@ -183,11 +181,8 @@ async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOut
         url="https://learn.microsoft.com/api/mcp")
 
     # Create the agent
-    microsoft_docs_agent = ChatAgent(
-        chat_client=AzureOpenAIChatClient(
-            endpoint=foundry_endpoint,
-            api_key=foundry_api_key,
-            deployment_name="gpt-5.2-chat"),
+    microsoft_docs_agent = Agent(
+        client=foundry_client,
         name="microsoft_docs_agent",
         description="Microsoft Docs agent that searches for relevant Microsoft documentation.",
         instructions="""
@@ -278,6 +273,33 @@ async def generate_final_output(input: AggregateOutput,
     await ctx.yield_output(final_response)
 
 
+async def _retrieve_knowledge_new(query: str) -> str:
+    query += "\n**Format responses in Markdown with proper headers no bigger than `###`. Use an official tone.**"
+
+    search_provider = AzureAISearchContextProvider(
+        endpoint=os.getenv("AI_SEARCH_ENDPOINT"),
+        knowledge_base_name=os.getenv("KNOWLEDGE_BASE_NAME", "kb-compliance-general"),        
+        mode="agentic",
+        credential=credential,
+        retrieval_reasoning_effort="medium",
+        timeout=180,
+        knowledge_base_output_mode="answerSynthesis",
+        api_version=ai_search_api_version,
+        azure_openai_resource_url=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        top_k=5,
+    )
+    
+    agent = Agent(
+        client=foundry_client,
+        model="gpt-5",
+        context_providers=[search_provider]
+    )
+    
+    session = agent.create_session()    
+    response = await agent.run(query, session=session)
+    return response.text
+
+
 async def _retrieve_knowledge(query: str) -> str:
     """Helper method to retrieve knowledge from the knowledge base.
     Args:
@@ -293,10 +315,14 @@ async def _retrieve_knowledge(query: str) -> str:
     # Prepare the url for knowledge base retrieval
     kb_retrieval_url = f"{ai_search_endpoint}/knowledgebases/{ai_search_knowledge_base_name}/retrieve?api-version={ai_search_api_version}"
 
+    # Generate an access token using DefaultAzureCredential
+    token_response = await credential.get_token("https://search.azure.com/.default")    
+
     # Prepare headers and payload for the request
-    headers = {
-        "api-key": ai_search_api_key,
-        "Content-Type": "application/json"
+    headers = {        
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token_response.token}"
+        #"api-key": ai_search_api_key        
     }
 
     # Prepare the payload for the request
