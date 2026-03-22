@@ -201,7 +201,7 @@ async def on_action_button(action: cl.Action):
 
     # Combine all user messages into a single prompt
     user_prompts = "\n".join(
-        [msg.content for msg in chat_history if msg.role == "user"]
+        [msg.text for msg in chat_history if msg.role == "user"]
     )
 
     # Send a new message with the combined prompts and command

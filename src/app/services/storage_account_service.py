@@ -57,13 +57,17 @@ class StorageAccountService:
             key_expiry_time=key_expiry_time
         )
 
+        # Cap SAS expiry to delegation key validity window
+        requested_sas_expiry_time = key_start_time + timedelta(weeks=expiry_weeks)
+        sas_expiry_time = min(requested_sas_expiry_time, key_expiry_time)
+
         # Generate user delegation SAS token
         sas_token = generate_container_sas(
             account_name=self._account_name,
             container_name=container_name,
             user_delegation_key=user_delegation_key,
             permission=ContainerSasPermissions(read=True),
-            expiry=datetime.now(timezone.utc) + timedelta(weeks=expiry_weeks),
+            expiry=sas_expiry_time,
             start=key_start_time  # Optional: when the SAS becomes valid
         )
 

@@ -9,7 +9,7 @@ from agent_framework import (
 from agent_framework.azure import (
     AzureOpenAIResponsesClient,
     AzureAIAgentClient)
-from azure.identity.aio import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential
 
 from .cache_service import cache_service
 from .tool_factory import tools

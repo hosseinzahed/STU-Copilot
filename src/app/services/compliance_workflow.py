@@ -13,7 +13,7 @@ from agent_framework import (
 from agent_framework.azure import AzureOpenAIResponsesClient, AzureAISearchContextProvider
 from azure.search.documents import SearchClient
 from urllib.parse import quote
-from azure.identity import DefaultAzureCredential
+from azure.identity.aio import DefaultAzureCredential
 import chainlit as cl
 from .data_models import PreprocessOutput, KnowledgeBaseOutput, MSDocsOutput, AggregateOutput
 from .storage_account_service import storage_account_service
@@ -316,7 +316,7 @@ async def _retrieve_knowledge(query: str) -> str:
     kb_retrieval_url = f"{ai_search_endpoint}/knowledgebases/{ai_search_knowledge_base_name}/retrieve?api-version={ai_search_api_version}"
 
     # Generate an access token using DefaultAzureCredential
-    token_response = credential.get_token("https://search.azure.com/.default")    
+    token_response = await credential.get_token("https://search.azure.com/.default")    
 
     # Prepare headers and payload for the request
     headers = {        

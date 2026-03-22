@@ -50,7 +50,7 @@ class FoundryService:
                 "dimensions": 1536,
             }
         )        
-        return result[0].vector if result[0] else []
+        return result[0].vector if len(result) > 0 else []
 
     async def summarize_and_generate_keywords(self, text: str) -> tuple:
         """Summarize the given text using a GPT model and extract keywords.
