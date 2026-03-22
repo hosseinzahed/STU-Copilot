@@ -1,3 +1,4 @@
+from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient, generate_container_sas, ContainerSasPermissions
 from typing import Any
 import os
@@ -13,16 +14,10 @@ logger = logging.getLogger(__name__)
 class StorageAccountService:
     def __init__(self):
         self._account_name = os.getenv("APP_AZURE_STORAGE_ACCOUNT")
-        self._account_key = os.getenv("APP_AZURE_STORAGE_ACCESS_KEY")
-        
-        _connection_string = (
-            f"DefaultEndpointsProtocol=https;"
-            f"AccountName={self._account_name};"
-            f"AccountKey={self._account_key};"
-            f"EndpointSuffix=core.windows.net"
+        self._blob_service_client = BlobServiceClient(
+            account_url=f"https://{self._account_name}.blob.core.windows.net",
+            credential=DefaultAzureCredential()
         )
-        self._blob_service_client = BlobServiceClient.from_connection_string(
-            _connection_string)
 
     def upload_blob(self, container_name: str, blob_name: str, data: Any, overwrite: bool = True):
         container_client = self._blob_service_client.get_container_client(
@@ -52,14 +47,26 @@ class StorageAccountService:
         if cached_token:
             return cached_token
 
-        # Generate new SAS token
+        # Get user delegation key (valid for up to 7 days)
+        key_start_time = datetime.now(timezone.utc)
+        key_expiry_time = key_start_time + \
+            timedelta(days=min(expiry_weeks * 7, 7))
+
+        user_delegation_key = self._blob_service_client.get_user_delegation_key(
+            key_start_time=key_start_time,
+            key_expiry_time=key_expiry_time
+        )
+
+        # Generate user delegation SAS token
         sas_token = generate_container_sas(
             account_name=self._account_name,
             container_name=container_name,
-            account_key=self._account_key,
+            user_delegation_key=user_delegation_key,
             permission=ContainerSasPermissions(read=True),
-            expiry=datetime.now(timezone.utc) + timedelta(weeks=expiry_weeks)
+            expiry=datetime.now(timezone.utc) + timedelta(weeks=expiry_weeks),
+            start=key_start_time  # Optional: when the SAS becomes valid
         )
+
         # Cache the new token
         cache_service.set_sas_token_cache(container_name, sas_token)
         return sas_token

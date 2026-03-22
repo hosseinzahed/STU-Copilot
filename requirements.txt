@@ -1,12 +1,13 @@
 dotenv
-chainlit
+chainlit==2.9.3
+azure-identity
 azure-cosmos
 azure-storage-blob
 azure-functions
 feedparser
-azure-identity
 backoff
 asyncpg
 psycopg2-binary
 agent-framework
 markitdown
+azure-search-documents

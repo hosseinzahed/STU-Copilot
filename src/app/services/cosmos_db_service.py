@@ -1,6 +1,7 @@
 import os
 from azure.cosmos import CosmosClient, PartitionKey, exceptions, ContainerProxy, CosmosDict
 from .foundry_service import FoundryService
+from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -9,11 +10,11 @@ load_dotenv(override=True)
 
 class CosmosDBService:
     def __init__(self):
-        endpoint = os.environ.get('COSMOSDB_ENDPOINT')
-        key = os.environ.get('COSMOSDB_KEY')
-        database_name = os.environ.get('COSMOSDB_DATABASE')
-        self.client = CosmosClient(endpoint, key)
-        self.database = self.client.get_database_client(database_name)
+        _endpoint = os.environ.get('COSMOSDB_ENDPOINT')
+        _database_name = os.environ.get('COSMOSDB_DATABASE')
+        _credentials = DefaultAzureCredential()
+        _client = CosmosClient(_endpoint, _credentials)
+        self.database = _client.get_database_client(_database_name)
         self.foundry_service = FoundryService()
 
     def get_container(self, container_name: str) -> ContainerProxy:
@@ -66,19 +67,20 @@ class CosmosDBService:
             enable_cross_partition_query=True
         ))
 
-    def hybrid_search(self, search_terms: str,
-                      container_name: str,
-                      fields: list[str],
-                      full_text_search_field: str = 'name',
-                      top_count: int = 5) -> list:
+    async def hybrid_search(self, search_terms: str,
+                            container_name: str,
+                            fields: list[str],
+                            full_text_search_field: str = 'name',
+                            top_count: int = 5) -> list:
         """
         Perform a hybrid search using full-text search and vector search.
         This is a placeholder for the actual implementation.
         """
 
         # Generate the embedding for the search terms
-        search_embedding = self.foundry_service.generate_embedding(
+        search_embedding = await self.foundry_service.generate_embedding(
             search_terms)
+
         # Split search terms to a quoted, comma-separated string for full-text search
         full_text = ', '.join(f'"{word}"' for word in search_terms.split())
         query_fields = f"c.{', c.'.join(fields)}"
@@ -103,6 +105,7 @@ class CosmosDBService:
             populate_query_metrics=True)
 
         return list(response)
+
 
 # Global instance
 cosmos_db_service = CosmosDBService()

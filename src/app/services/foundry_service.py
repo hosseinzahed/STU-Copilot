@@ -1,6 +1,7 @@
 import os
-from openai import AzureOpenAI 
-from openai.types import CreateEmbeddingResponse
+from agent_framework import ChatResponse
+from agent_framework.azure import AzureOpenAIResponsesClient, AzureOpenAIEmbeddingClient
+from azure.identity import DefaultAzureCredential
 import json
 import logging
 from dotenv import load_dotenv
@@ -17,40 +18,41 @@ class FoundryService:
     """Service to interact with Azure OpenAI Foundry for embeddings and chat completions."""
 
     def __init__(self):
-        self.endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT')
-        self.api_key = os.environ.get('AI_FOUNDRY_KEY')
-        self.embedding_model = "text-embedding-3-small"
-        self.chat_model = "gpt-4.1-nano"
-        self.api_version = "2024-12-01-preview"        
-
-        self.embedding_client = AzureOpenAI(
-            azure_endpoint=self.endpoint,
-            azure_deployment=self.embedding_model,
-            api_version=self.api_version,
-            api_key=self.api_key
+        _endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT')
+        _embedding_model = "text-embedding-3-small"
+        _chat_model = "gpt-4.1-nano"
+        _api_version = "2024-12-01-preview"
+        _credential = DefaultAzureCredential()
+        
+        self.embedding_client = AzureOpenAIEmbeddingClient(
+            endpoint=_endpoint,
+            deployment_name=_embedding_model,
+            api_version=_api_version,
+            credential=_credential
         )
 
-        self.chat_client = AzureOpenAI(
-            azure_endpoint=self.endpoint,
-            azure_deployment=self.chat_model,
-            api_version=self.api_version,
-            api_key=self.api_key
+        self.chat_client = AzureOpenAIResponsesClient(
+            endpoint=_endpoint,
+            deployment_name=_chat_model,
+            api_version=_api_version,
+            credential=_credential
         )
 
-    def generate_embedding(self, text: str) -> list:
+    async def generate_embedding(self, text: str) -> list:
         """Get the embedding for a given text."""
         if not text:
             return []
 
-        response: CreateEmbeddingResponse = self.embedding_client.embeddings.create(
-            input=text,
-            model=self.embedding_model,
-            encoding_format="float",
-            dimensions=1536,
-        )
-        return response.data[0].embedding if response.data else []
+        result = await self.embedding_client.get_embeddings(
+            values=[text],
+            options= {                
+                "encoding_format": "float",
+                "dimensions": 1536,
+            }
+        )        
+        return result[0].vector if result[0] else []
 
-    def summarize_and_generate_keywords(self, text: str) -> tuple:
+    async def summarize_and_generate_keywords(self, text: str) -> tuple:
         """Summarize the given text using a GPT model and extract keywords.
 
         Args:
@@ -64,8 +66,7 @@ class FoundryService:
             return ("", "")
 
         try:
-            response = self.chat_client.chat.completions.create(
-                model=self.chat_model,
+            response: ChatResponse = await self.chat_client.get_response(                
                 messages=[
                     {
                         "role": "system",
@@ -92,12 +93,13 @@ class FoundryService:
                         "content": text
                     }
                 ],
-                max_tokens=4096,
-                timeout=30  # Add timeout for better reliability
+                options={
+                    "max_tokens": 4096
+                }                
             )
 
             # Extract content from response
-            content = response.choices[0].message.content if response.choices else ''
+            content = response.messages[-1].text if response.messages else ''
 
             # Default values in case parsing fails
             summary = content
@@ -135,6 +137,7 @@ class FoundryService:
         except Exception as e:
             logger.error(f"Error during text summarization: {e}")
             return ("", "")
+
 
 # Global instance
 foundry_service = FoundryService()
