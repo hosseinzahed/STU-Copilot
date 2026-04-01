@@ -10,7 +10,8 @@ from agent_framework import (
     WorkflowContext,
     MCPStreamableHTTPTool,
     executor)
-from agent_framework.azure import AzureOpenAIResponsesClient, AzureAISearchContextProvider
+from agent_framework.azure import AzureAISearchContextProvider
+from agent_framework.foundry import FoundryChatClient
 from azure.search.documents import SearchClient
 from urllib.parse import quote
 from azure.identity.aio import DefaultAzureCredential
@@ -39,10 +40,10 @@ compliance_container_name = "compliance-docs"
 credential = DefaultAzureCredential()
 
 # Initialize the Azure OpenAI Chat Client
-foundry_client = AzureOpenAIResponsesClient(
+foundry_client = FoundryChatClient(
     project_endpoint=os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT"),
     credential=credential,
-    deployment_name="gpt-5.2-chat")
+    model="gpt-5.2-chat")
 
 def get_compliance_workflow() -> Workflow:
     """Creates and returns a compliance workflow.
@@ -145,7 +146,9 @@ async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOut
                 - Use an official tone
             """,
         tools=[mcp_server],
-        allow_multiple_tool_calls=True)
+        default_options={
+            "allow_multiple_tool_calls": True,
+        })
 
     # Run the agent with the query
     response = await microsoft_docs_agent.run(input.messages)

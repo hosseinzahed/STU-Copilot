@@ -6,9 +6,7 @@ from agent_framework import (
     MCPStreamableHTTPTool,
     agent_middleware,
     function_middleware)
-from agent_framework.azure import (
-    AzureOpenAIResponsesClient,
-    AzureAIAgentClient)
+from agent_framework.foundry import FoundryChatClient
 from azure.identity import DefaultAzureCredential
 
 from .cache_service import cache_service
@@ -27,10 +25,10 @@ class AgentFactory:
         self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.project_endpoint = os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT")
         self.credential = DefaultAzureCredential()
-        self.chat_client = AzureOpenAIResponsesClient(
+        self.chat_client = FoundryChatClient(
             project_endpoint=self.project_endpoint,
             credential=self.credential,
-            deployment_name="gpt-5.2-chat"
+            model="gpt-5.2-chat"
         )
 
         # Initialize agents
@@ -70,7 +68,6 @@ class AgentFactory:
                 - Bing Search Agent: For performing web searches using Bing. Use this agent to gather up-to-date information from the web.                
                 Provide clear and concise responses, ensuring that the user feels supported throughout their interaction.
                 """,
-            model_id=model_name,
             tools=[
                 self.agents.get("microsoft_docs_agent").as_tool(
                     description="Search Microsoft documentation"
@@ -79,7 +76,9 @@ class AgentFactory:
                     description="Perform web searches using Bing"
                 )
             ],
-            allow_multiple_tool_calls=True,
+            default_options={
+                "allow_multiple_tool_calls": True,
+            },
             middleware=[
                 self.simple_agent_middleware,
                 self.simple_function_middleware
@@ -99,7 +98,6 @@ class AgentFactory:
             name=agent_name,
             description="GitHub agent that fetches relevant information from GitHub repositories.",
             instructions=cache_service.load_prompt(agent_name),
-            model_id=model_name,
             tools=[tools.search_github_repositories],
             middleware=[
                 self.simple_agent_middleware,
@@ -122,10 +120,10 @@ class AgentFactory:
 
         # Create the agent
         microsoft_docs_agent = Agent(
-            client=AzureOpenAIResponsesClient(
+            client=FoundryChatClient(
                 project_endpoint=self.project_endpoint,
                 credential=self.credential,
-                deployment_name=model_name
+                model=model_name
             ),
             name=agent_name,
             description="Microsoft Docs agent that searches for relevant Microsoft documentation.",
@@ -136,7 +134,9 @@ class AgentFactory:
                 - Format responses in markdown with related topic suggestions
             """,
             tools=[mcp_server],
-            allow_multiple_tool_calls=True,
+            default_options={
+                "allow_multiple_tool_calls": True,
+            },
             middleware=[
                 self.simple_agent_middleware,
                 self.simple_function_middleware
@@ -155,8 +155,7 @@ class AgentFactory:
             client=self.chat_client,
             name=agent_name,
             description="Blog Posts agent that searches for relevant blog posts.",
-            instructions=cache_service.load_prompt(agent_name),
-            model_id=model_name,
+            instructions=cache_service.load_prompt(agent_name),            
             tools=[tools.search_blog_posts],
             middleware=[
                 self.simple_agent_middleware,
@@ -177,7 +176,6 @@ class AgentFactory:
             name=agent_name,
             description="Seismic agent that searches for relevant presentations and PowerPoints.",
             instructions=cache_service.load_prompt(agent_name),
-            model_id=model_name,
             tools=[tools.search_seismic_presentations],
             middleware=[
                 self.simple_agent_middleware,
@@ -190,24 +188,18 @@ class AgentFactory:
     def get_bing_search_agent(self) -> Agent:
         """Create a Bing Search agent with the necessary plugins."""
         agent_name = "bing_search_agent"
-        model_name = "gpt-4.1-mini"
-
+                
         # Create the agent
         bing_search_agent = Agent(
             name=agent_name,
-            description="Bing Search agent that performs web searches using Bing.",
-            model_name=model_name,
-            client=AzureAIAgentClient(
-                project_endpoint=self.project_endpoint,
-                credential=self.credential,
-                model_deployment_name=model_name,
-                agent_id=os.getenv("BING_SEARCH_AGENT_ID")
-            ),
+            description="Bing Search agent that performs web searches using Bing.",            
+            client=self.chat_client,
             instructions="""
                 You are a helpful assistant that provides information by searching the web.
                 Use the provided tool to search for relevant information based on user queries.
                 Always provide the answers in English. Provide the citations for your sources.
             """,
+            tools=[self.chat_client.get_web_search_tool()],
             middleware=[
                 self.simple_agent_middleware,
                 self.simple_function_middleware
@@ -237,10 +229,10 @@ class AgentFactory:
 
         # Create the agent
         github_docs_search_agent = Agent(
-            client=AzureOpenAIResponsesClient(
+            client=FoundryChatClient(
                 project_endpoint=self.project_endpoint,
                 credential=self.credential,
-                deployment_name=model_name
+                model=model_name
             ),
             name=agent_name,
             description="GitHub Docs Search agent that searches for relevant GitHub support documentation.",
@@ -252,7 +244,9 @@ class AgentFactory:
                 Provide accurate and concise information and also cite your sources with appropriate links.
             """,
             tools=[mcp_server],
-            allow_multiple_tool_calls=True,
+            default_options={
+                "allow_multiple_tool_calls": True,
+            },
             middleware=[
                 self.simple_agent_middleware,
                 self.simple_function_middleware
@@ -275,10 +269,10 @@ class AgentFactory:
 
         # Create the agent
         aws_docs_agent = Agent(
-            client=AzureOpenAIResponsesClient(
+            client=FoundryChatClient(
                 project_endpoint=self.project_endpoint,
                 credential=self.credential,
-                deployment_name=model_name
+                model=model_name
             ),
             name=agent_name,
             description="AWS Docs agent that searches for relevant AWS documentation.",
@@ -307,8 +301,7 @@ class AgentFactory:
             client=self.chat_client,
             name=agent_name,
             description="Architect agent that provides architectural guidance and best practices.",
-            instructions=cache_service.load_prompt(agent_name),
-            model_id=model_name,
+            instructions=cache_service.load_prompt(agent_name),            
             tools=[
                 self.get_bing_search_agent().as_tool(
                     description="Perform web searches using Bing")

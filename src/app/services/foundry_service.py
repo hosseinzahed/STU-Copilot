@@ -1,6 +1,7 @@
 import os
 from agent_framework import ChatResponse
-from agent_framework.azure import AzureOpenAIResponsesClient, AzureOpenAIEmbeddingClient
+from agent_framework.openai import OpenAIEmbeddingClient
+from agent_framework.foundry import FoundryChatClient
 from azure.identity import DefaultAzureCredential
 import json
 import logging
@@ -24,17 +25,16 @@ class FoundryService:
         _api_version = "2024-12-01-preview"
         _credential = DefaultAzureCredential()
         
-        self.embedding_client = AzureOpenAIEmbeddingClient(
-            endpoint=_endpoint,
-            deployment_name=_embedding_model,
+        self.embedding_client = OpenAIEmbeddingClient(
+            azure_endpoint=_endpoint,
+            model=_embedding_model,
             api_version=_api_version,
             credential=_credential
         )
 
-        self.chat_client = AzureOpenAIResponsesClient(
-            endpoint=_endpoint,
-            deployment_name=_chat_model,
-            api_version=_api_version,
+        self.chat_client = FoundryChatClient(
+            project_endpoint=_endpoint,
+            model=_chat_model,
             credential=_credential
         )
 
