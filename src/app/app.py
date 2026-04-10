@@ -115,7 +115,7 @@ async def on_message(user_message: cl.Message):
     cl.user_session.set("last_used_agent_name", responder_agent.name)
 
     # Append user message to chat history
-    chat_history.append(Message(role="user", text=user_message.content))
+    chat_history.append(Message(role="user", contents=user_message.content))
     answer = cl.Message(content="")
 
     # Set the latest agent in the user session
@@ -133,7 +133,7 @@ async def on_message(user_message: cl.Message):
 
     # Update chat history and thread
     cl.user_session.set("chat_session", chat_session)
-    chat_history.append(Message(role="assistant", text=answer.content))
+    chat_history.append(Message(role="assistant", contents=answer.content))
 
     # Check for image URLs in the response and display them
     image_elements = extract_image_elements(answer.content)
@@ -159,10 +159,10 @@ async def on_chat_resume(thread: ThreadDict):
     for step in thread["steps"]:
         if step["type"] == "assistant_message":
             chat_history.append(Message(
-                role="assistant", text=step["output"]))
+                role="assistant", contents=step["output"]))
         elif step["type"] == "user_message":
             chat_history.append(Message(
-                role="user", text=step["output"]))
+                role="user", contents=step["output"]))
 
     # Store chat history in user session
     cl.user_session.set("chat_history", chat_history)

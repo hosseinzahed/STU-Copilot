@@ -114,7 +114,6 @@ async def retrieve_content() -> str:
 
     search_provider = AzureAISearchContextProvider(
         endpoint=os.getenv("AI_SEARCH_ENDPOINT"),
-        api_key=os.getenv("AI_SEARCH_KEY"),
         credential=DefaultAzureCredential() if not os.getenv("AI_SEARCH_KEY") else None,
         mode="agentic",
         knowledge_base_name="stu-copilot-kb",
@@ -124,7 +123,7 @@ async def retrieve_content() -> str:
     )
 
     results = await search_provider.invoking(
-        Message(role="user", text="azure bing"))
+        Message(role="user", contents="azure bing"))
 
     print(results)
 

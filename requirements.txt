@@ -1,5 +1,5 @@
 dotenv
-chainlit==2.9.3
+chainlit
 azure-identity
 azure-cosmos
 azure-storage-blob

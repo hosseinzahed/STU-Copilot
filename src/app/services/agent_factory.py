@@ -6,11 +6,9 @@ from agent_framework import (
     MCPStreamableHTTPTool,
     agent_middleware,
     function_middleware)
-from agent_framework.azure import (
-    AzureOpenAIResponsesClient,
-    AzureAIAgentClient)
+from agent_framework.foundry import FoundryChatClient
 from azure.identity import DefaultAzureCredential
-
+from agent_framework.openai import OpenAIChatClient
 from .cache_service import cache_service
 from .tool_factory import tools
 from .compliance_workflow import get_compliance_workflow
@@ -27,10 +25,10 @@ class AgentFactory:
         self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.project_endpoint = os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT")
         self.credential = DefaultAzureCredential()
-        self.chat_client = AzureOpenAIResponsesClient(
+        self.chat_client = FoundryChatClient(
             project_endpoint=self.project_endpoint,
             credential=self.credential,
-            deployment_name="gpt-5.2-chat"
+            model="gpt-5.2-chat"
         )
 
         # Initialize agents
@@ -40,7 +38,6 @@ class AgentFactory:
             "microsoft_docs_agent": self.get_microsoft_docs_agent(),
             "blog_posts_agent": self.get_blog_posts_agent(),
             "seismic_agent": self.get_seismic_agent(),
-            "bing_search_agent": self.get_bing_search_agent(),
             # "architect_agent": self.get_architect_agent(),
             "aws_docs_agent": self.get_aws_docs_agent(),
             # "compliance_agent": self.get_compliance_agent()
@@ -67,19 +64,16 @@ class AgentFactory:
                 Based on the user's input, if necessary, decide which specialized agent to delegate the task to.
                 You have access to the following agents:
                 - Microsoft Docs Agent: For searching Microsoft documentation. You should use this agent to find official Microsoft documentation and provide accurate information.
-                - Bing Search Agent: For performing web searches using Bing. Use this agent to gather up-to-date information from the web.                
                 Provide clear and concise responses, ensuring that the user feels supported throughout their interaction.
                 """,
-            model_id=model_name,
             tools=[
                 self.agents.get("microsoft_docs_agent").as_tool(
                     description="Search Microsoft documentation"
                 ),
-                self.agents.get("bing_search_agent").as_tool(
-                    description="Perform web searches using Bing"
-                )
             ],
-            allow_multiple_tool_calls=True,
+            default_options={
+                "allow_multiple_tool_calls": True,
+            },
             middleware=[
                 self.simple_agent_middleware,
                 self.simple_function_middleware
@@ -99,7 +93,6 @@ class AgentFactory:
             name=agent_name,
             description="GitHub agent that fetches relevant information from GitHub repositories.",
             instructions=cache_service.load_prompt(agent_name),
-            model_id=model_name,
             tools=[tools.search_github_repositories],
             middleware=[
                 self.simple_agent_middleware,
@@ -122,10 +115,10 @@ class AgentFactory:
 
         # Create the agent
         microsoft_docs_agent = Agent(
-            client=AzureOpenAIResponsesClient(
+            client=FoundryChatClient(
                 project_endpoint=self.project_endpoint,
                 credential=self.credential,
-                deployment_name=model_name
+                model=model_name
             ),
             name=agent_name,
             description="Microsoft Docs agent that searches for relevant Microsoft documentation.",
@@ -136,7 +129,9 @@ class AgentFactory:
                 - Format responses in markdown with related topic suggestions
             """,
             tools=[mcp_server],
-            allow_multiple_tool_calls=True,
+            default_options={
+                "allow_multiple_tool_calls": True,
+            },
             middleware=[
                 self.simple_agent_middleware,
                 self.simple_function_middleware
@@ -156,7 +151,6 @@ class AgentFactory:
             name=agent_name,
             description="Blog Posts agent that searches for relevant blog posts.",
             instructions=cache_service.load_prompt(agent_name),
-            model_id=model_name,
             tools=[tools.search_blog_posts],
             middleware=[
                 self.simple_agent_middleware,
@@ -177,7 +171,6 @@ class AgentFactory:
             name=agent_name,
             description="Seismic agent that searches for relevant presentations and PowerPoints.",
             instructions=cache_service.load_prompt(agent_name),
-            model_id=model_name,
             tools=[tools.search_seismic_presentations],
             middleware=[
                 self.simple_agent_middleware,
@@ -187,60 +180,33 @@ class AgentFactory:
 
         return seismic_agent
 
-    def get_bing_search_agent(self) -> Agent:
-        """Create a Bing Search agent with the necessary plugins."""
-        agent_name = "bing_search_agent"
-        model_name = "gpt-4.1-mini"
-
-        # Create the agent
-        bing_search_agent = Agent(
-            name=agent_name,
-            description="Bing Search agent that performs web searches using Bing.",
-            model_name=model_name,
-            client=AzureAIAgentClient(
-                project_endpoint=self.project_endpoint,
-                credential=self.credential,
-                model_deployment_name=model_name,
-                agent_id=os.getenv("BING_SEARCH_AGENT_ID")
-            ),
-            instructions="""
-                You are a helpful assistant that provides information by searching the web.
-                Use the provided tool to search for relevant information based on user queries.
-                Always provide the answers in English. Provide the citations for your sources.
-            """,
-            middleware=[
-                self.simple_agent_middleware,
-                self.simple_function_middleware
-            ]
-        )
-
-        return bing_search_agent
-
     def get_github_docs_search_agent(self) -> Agent:
         """Create a GitHub Docs Search agent with the necessary plugins."""
         agent_name = "github_docs_search_agent"
         model_name = "gpt-5.2-chat"
-        
+
         github_token = os.getenv("GITHUB_TOKEN")
-        
-        # Create the MCP tool
-        mcp_server = MCPStreamableHTTPTool(
-            name="GitHub Docs MCP Tool",
-            url="https://api.githubcopilot.com/mcp",
+
+        client = OpenAIChatClient(
+            model=model_name,
+            async_client=self.credential
+        )
+        github_mcp_tool = client.get_mcp_tool(
+            name="GitHub",
+            url="https://api.githubcopilot.com/mcp/",
             headers={
-                "Authorization": f"Bearer {github_token}",                
+                "Authorization": f"Bearer {github_token}",
                 "X-MCP-Tools": "github_support_docs_search"
             },
-            approval_mode="never_require"
+            approval_mode="never_require",
         )
-        
 
         # Create the agent
         github_docs_search_agent = Agent(
-            client=AzureOpenAIResponsesClient(
+            client=FoundryChatClient(
                 project_endpoint=self.project_endpoint,
                 credential=self.credential,
-                deployment_name=model_name
+                model=model_name
             ),
             name=agent_name,
             description="GitHub Docs Search agent that searches for relevant GitHub support documentation.",
@@ -251,8 +217,10 @@ class AgentFactory:
                 Always use the provided tool to search for relevant documentation based on user queries.
                 Provide accurate and concise information and also cite your sources with appropriate links.
             """,
-            tools=[mcp_server],
-            allow_multiple_tool_calls=True,
+            tools=[github_mcp_tool],
+            default_options={
+                "allow_multiple_tool_calls": True,
+            },
             middleware=[
                 self.simple_agent_middleware,
                 self.simple_function_middleware
@@ -275,10 +243,10 @@ class AgentFactory:
 
         # Create the agent
         aws_docs_agent = Agent(
-            client=AzureOpenAIResponsesClient(
+            client=FoundryChatClient(
                 project_endpoint=self.project_endpoint,
                 credential=self.credential,
-                deployment_name=model_name
+                model=model_name
             ),
             name=agent_name,
             description="AWS Docs agent that searches for relevant AWS documentation.",
@@ -308,11 +276,7 @@ class AgentFactory:
             name=agent_name,
             description="Architect agent that provides architectural guidance and best practices.",
             instructions=cache_service.load_prompt(agent_name),
-            model_id=model_name,
-            tools=[
-                self.get_bing_search_agent().as_tool(
-                    description="Perform web searches using Bing")
-            ],
+            tools=[],
             middleware=[
                 self.simple_agent_middleware,
                 self.simple_function_middleware

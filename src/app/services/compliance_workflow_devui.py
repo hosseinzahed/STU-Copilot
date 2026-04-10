@@ -12,12 +12,16 @@ from agent_framework import (
     executor)
 from agent_framework.azure import AzureAISearchContextProvider
 from agent_framework.foundry import FoundryChatClient
-from azure.search.documents import SearchClient
 from urllib.parse import quote
 from azure.identity.aio import DefaultAzureCredential
-import chainlit as cl
-from .data_models import PreprocessOutput, KnowledgeBaseOutput, MSDocsOutput, AggregateOutput
-from .storage_account_service import storage_account_service
+from data_models import PreprocessOutput, KnowledgeBaseOutput, MSDocsOutput, AggregateOutput
+from storage_account_service import storage_account_service
+
+from agent_framework.devui import serve
+
+from agent_framework.observability import configure_otel_providers
+
+configure_otel_providers()
 
 # Load environment variables for AI Search
 ai_search_endpoint = os.getenv("AI_SEARCH_ENDPOINT")
@@ -40,33 +44,6 @@ foundry_client = FoundryChatClient(
     credential=credential,
     model="gpt-5.2-chat")
 
-# Define tasks
-analyze_query_task = cl.Task(
-    title="Analyzing the query",
-    status=cl.TaskStatus.READY,
-    forId="analyze_query_task")
-
-ms_docs_search_task = cl.Task(
-    title="Searching Microsoft docs",
-    status=cl.TaskStatus.READY,
-    forId="ms_docs_search_task")
-
-retrieve_kb_task = cl.Task(
-    title="Searching the knowledge base",
-    status=cl.TaskStatus.READY,
-    forId="retrieve_kb_task")
-
-aggregate_results_task = cl.Task(
-    title="Aggregating results",
-    status=cl.TaskStatus.READY,
-    forId="aggregate_results_task")
-
-generate_final_output_task = cl.Task(
-    title="Generating final output",
-    status=cl.TaskStatus.READY,
-    forId="generate_final_output_task")
-
-
 def get_compliance_workflow() -> Workflow:
     """Creates and returns a compliance workflow.
     Returns:
@@ -88,7 +65,7 @@ def get_compliance_workflow() -> Workflow:
 
 
 @executor(id="preprocess_query")
-async def preprocess_query(messages: list[Message],
+async def preprocess_query(message: str,
                            ctx: WorkflowContext[PreprocessOutput]) -> None:
     """Executor to preprocess the input messages.
     Args:
@@ -97,34 +74,13 @@ async def preprocess_query(messages: list[Message],
     Returns:
         PreprocessOutput: The preprocessed output containing messages, chat thread, and task list.
     """
-    # Send a thinking message
-    await cl.Message("Planning...").send()
-
-    # Update the analyze query task status
-    analyze_query_task.status = cl.TaskStatus.DONE
-    ms_docs_search_task.status = cl.TaskStatus.READY
-    retrieve_kb_task.status = cl.TaskStatus.READY    
-    aggregate_results_task.status = cl.TaskStatus.READY
-    generate_final_output_task.status = cl.TaskStatus.READY
-
-    # Create a new task list
-    task_list = cl.TaskList(
-        name="compliance_workflow_tasks",
-        title="Compliance Workflow Tasks",
-        status="⌛ Running…",
-        tasks=[
-            analyze_query_task,
-            ms_docs_search_task,
-            retrieve_kb_task,            
-            aggregate_results_task,
-            generate_final_output_task
-        ])
-    await task_list.update()
-
+    
     # Prepare the output
     output = PreprocessOutput(
-        messages=messages,
-        task_list=task_list)
+        messages=[Message(
+            role="user",
+            text=message)],
+        task_list=[])
 
     # Send the output to the next executor
     await ctx.send_message(output)
@@ -142,9 +98,7 @@ async def retrieve_knowledge_base(input: PreprocessOutput,
     """
 
     # Update the task status
-    retrieve_kb_task.status = cl.TaskStatus.RUNNING
-    await input.task_list.update()
-
+    
     # Call the helper method to retrieve knowledge
     json_response = await _retrieve_knowledge(input.messages[-1].text)
 
@@ -156,9 +110,7 @@ async def retrieve_knowledge_base(input: PreprocessOutput,
         answer=processed_md_response,
         task_list=input.task_list)
 
-    # Update the task status
-    retrieve_kb_task.status = cl.TaskStatus.DONE
-    await input.task_list.update()
+    
 
     # Return the output to the next executor
     await ctx.send_message(output)
@@ -172,10 +124,7 @@ async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOut
     Returns:
         str: The retrieved information from Microsoft Docs.
     """
-    # Update the task status
-    ms_docs_search_task.status = cl.TaskStatus.RUNNING
-    await input.task_list.update()
-
+    
     # Create the MCP tool
     mcp_server = MCPStreamableHTTPTool(
         name="Microsoft Docs MCP Tool",
@@ -208,10 +157,7 @@ async def search_ms_docs(input: PreprocessOutput, ctx: WorkflowContext[MSDocsOut
         answer=response.text,
         task_list=input.task_list)
 
-    # Update the task status
-    ms_docs_search_task.status = cl.TaskStatus.DONE
-    await input.task_list.update()
-
+    
     # Return a placeholder response
     await ctx.send_message(output)
 
@@ -245,10 +191,6 @@ async def aggregate_results(results: list[Any],
         aggregated_response=aggregated_response,
         task_list=kb_output.task_list)
 
-    # Update the task list status to completed
-    aggregate_results_task.status = cl.TaskStatus.DONE
-    await kb_output.task_list.update()
-
     # Return the final aggregated output
     await ctx.send_message(output)
 
@@ -265,12 +207,6 @@ async def generate_final_output(input: AggregateOutput,
     # Here you can add any final formatting or processing if needed
     # Placeholder for any additional processing
     final_response = input.aggregated_response
-
-    # Update the task status
-    generate_final_output_task.status = cl.TaskStatus.DONE
-    input.task_list.status = "✅ Completed"
-    await input.task_list.update()
-    await input.task_list.remove()
 
     # Return the final response
     await ctx.yield_output(final_response)
@@ -397,3 +333,5 @@ def _extract_page(doc_key: str) -> str:
     if "_pages_" in doc_key:
         return doc_key.split("_pages_")[-1]
     return "Undefined"
+
+serve([get_compliance_workflow()], port=8080, auto_open=True)
