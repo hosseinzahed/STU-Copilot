@@ -123,7 +123,7 @@ async def retrieve_content() -> str:
     )
 
     results = await search_provider.invoking(
-        Message(role="user", text="azure bing"))
+        Message(role="user", contents="azure bing"))
 
     print(results)
 

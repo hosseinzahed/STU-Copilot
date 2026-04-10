@@ -4,7 +4,7 @@ from typing import Annotated
 from pydantic import Field
 from .cosmos_db_service import cosmos_db_service
 from agent_framework import tool, Agent
-from agent_framework.azure import AzureAIAgentClient
+from agent_framework.foundry import FoundryAgent 
 from azure.identity.aio import DefaultAzureCredential
 
 
@@ -51,28 +51,6 @@ class Tools:
                     "level", "solution_area", "format", "size", "confidentiality"],
             top_count=5)
         return results
-
-    @tool(name="search_by_bing", 
-          description="Search by Bing for a given query.", 
-          approval_mode="never_require")
-    #@cl.step(type="tool", name="Search by Bing")
-    async def search_by_bing(prompt: Annotated[str, Field(description="The query to search for")]) -> str:
-        """Perform a Bing search."""
-
-        async with (
-            DefaultAzureCredential() as credential,
-            Agent(
-                chat_client=AzureAIAgentClient(
-                    async_credential=credential,
-                    project_endpoint=os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT"),
-                    agent_id=os.getenv("BING_SEARCH_AGENT_ID")
-                ),
-                instructions="You help with web search queries using Bing.",
-            ) as agent,
-        ):
-            result = await agent.run(messages=prompt)
-            return result.text
-
 
 # Global instances
 tools = Tools()

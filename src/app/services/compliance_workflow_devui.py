@@ -12,7 +12,6 @@ from agent_framework import (
     executor)
 from agent_framework.azure import AzureAISearchContextProvider
 from agent_framework.foundry import FoundryChatClient
-from azure.search.documents import SearchClient
 from urllib.parse import quote
 from azure.identity.aio import DefaultAzureCredential
 from data_models import PreprocessOutput, KnowledgeBaseOutput, MSDocsOutput, AggregateOutput
