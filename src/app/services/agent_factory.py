@@ -25,14 +25,14 @@ class AgentFactory:
         self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.project_endpoint = os.getenv("AI_FOUNDRY_PROJECT_ENDPOINT")
         self.credential = DefaultAzureCredential()
-        self.chat_client = FoundryChatClient(
+        self.foundry_client = FoundryChatClient(
             project_endpoint=self.project_endpoint,
             credential=self.credential,
             model="gpt-5.2-chat"
         )
 
         # Initialize agents
-        self.agents = {
+        self.agents: dict[str, Agent] = {
             "github_agent": self.get_github_agent(),
             "github_docs_search_agent": self.get_github_docs_search_agent(),
             "microsoft_docs_agent": self.get_microsoft_docs_agent(),
@@ -53,23 +53,25 @@ class AgentFactory:
         """Create an orchestrator agent with the necessary plugins."""
         agent_name = "orchestrator_agent"
         model_name = "gpt-5.2-chat"
+        
+        web_search_tool = self.foundry_client.get_web_search_tool()
 
         # Create the agent
         orchestrator_agent = Agent(
-            client=self.chat_client,
+            client=self.foundry_client,
             name=agent_name,
             description="Orchestrator agent that manages the workflow of other agents.",
             instructions="""
-                You're a helpful assistant assisting users with their requests in the context of Microsoft technologies.
-                Based on the user's input, if necessary, decide which specialized agent to delegate the task to.
-                You have access to the following agents:
-                - Microsoft Docs Agent: For searching Microsoft documentation. You should use this agent to find official Microsoft documentation and provide accurate information.
-                Provide clear and concise responses, ensuring that the user feels supported throughout their interaction.
+                You are a Microsoft technology assistant. 
+                Route tasks to the appropriate specialized agent (Microsoft Docs, GitHub, blog posts, seismic presentations) as needed. 
+                For web searches, use the provided web search tool and always cite sources with links. 
+                Be clear and concise.
                 """,
             tools=[
-                self.agents.get("microsoft_docs_agent").as_tool(
-                    description="Search Microsoft documentation"
-                ),
+                self.agents.get("microsoft_docs_agent").as_tool(),                
+                self.agents.get("blog_posts_agent").as_tool(),
+                self.agents.get("github_docs_search_agent").as_tool(),
+                #web_search_tool                
             ],
             default_options={
                 "allow_multiple_tool_calls": True,
@@ -89,7 +91,7 @@ class AgentFactory:
 
         # Create the agent
         github_agent = Agent(
-            client=self.chat_client,
+            client=self.foundry_client,
             name=agent_name,
             description="GitHub agent that fetches relevant information from GitHub repositories.",
             instructions=cache_service.load_prompt(agent_name),
@@ -147,7 +149,7 @@ class AgentFactory:
 
         # Create the agent
         blog_posts_agent = Agent(
-            client=self.chat_client,
+            client=self.foundry_client,
             name=agent_name,
             description="Blog Posts agent that searches for relevant blog posts.",
             instructions=cache_service.load_prompt(agent_name),
@@ -167,7 +169,7 @@ class AgentFactory:
 
         # Create the agent
         seismic_agent = Agent(
-            client=self.chat_client,
+            client=self.foundry_client,
             name=agent_name,
             description="Seismic agent that searches for relevant presentations and PowerPoints.",
             instructions=cache_service.load_prompt(agent_name),
@@ -272,7 +274,7 @@ class AgentFactory:
 
         # Create the agent
         architect_agent = Agent(
-            client=self.chat_client,
+            client=self.foundry_client,
             name=agent_name,
             description="Architect agent that provides architectural guidance and best practices.",
             instructions=cache_service.load_prompt(agent_name),
